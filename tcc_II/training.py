@@ -95,7 +95,7 @@ def train_model(
             train_ds,
             validation_data=valid_ds,
             epochs=epochs,
-            steps_per_epochs=train_shape[0]//batch,
+            steps_per_epoch=train_shape[0]//batch,
             validation_steps=valid_shape[0]//batch,
         )
     
