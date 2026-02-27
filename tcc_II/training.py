@@ -43,6 +43,7 @@ def preprocess_image_tf(image, img_w):
 
 def build_dataset(data, batch):
     imgs, labels = data
+    labels = labels['Vmax']
 
     dataset = tf.data.Dataset.from_tensor_slices((imgs, labels))
     dataset = dataset.repeat()
