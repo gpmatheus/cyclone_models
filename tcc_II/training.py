@@ -51,7 +51,7 @@ def build_dataset(data, batch):
     dataset = dataset.batch(batch)
     dataset = dataset.prefetch(tf.data.AUTOTUNE)
 
-    return dataset, imgs.shape[0]
+    return dataset, imgs.shape
 
 def load_datasets(batch):
     train, valid, _ = data.preprocess(force=True)
@@ -87,16 +87,16 @@ def train_model(
     batch,
 ):
     
-    train_ds, train_len = train_ds
-    valid_ds, valid_len = valid_ds
+    train_ds, train_shape = train_ds
+    valid_ds, valid_shape = valid_ds
     
     with tf.device('/GPU:0'):
         model.fit(
             train_ds,
             validation_data=valid_ds,
             epochs=epochs,
-            steps_per_epochs=train_len//batch,
-            validation_steps=valid_len//batch,
+            steps_per_epochs=train_shape[0]//batch,
+            validation_steps=valid_shape[0]//batch,
         )
     
     return model
@@ -109,7 +109,9 @@ def save_model(model, path):
 def main():
     
     train_ds, valid_ds = load_datasets(BATCH)
-    model = build_model((IMG_W, IMG_W, 3), LR)
+    _, train_shape = train_ds
+
+    model = build_model(train_shape[1:], LR)
     model = train_model(model, train_ds, valid_ds, EPOCHS, BATCH)
     save_model(model, Path("model"))
 
