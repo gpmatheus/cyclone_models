@@ -6,10 +6,13 @@ import pandas as pd
 import datetime
 import os
 
-folder_path = "data/preprocessed"
-preprocessed_train = f'{folder_path}/train.h5'
-preprocessed_valid = f'{folder_path}/valid.h5'
-preprocessed_test = f'{folder_path}/test.h5'
+data_path = os.getenv("DATA_PATH") or "data"
+
+preprocessed_path = os.getenv("PREPROCESSED_PATH") or "data/preprocessed"
+print(f'folder_path: {preprocessed_path}')
+preprocessed_train = f'{preprocessed_path}/train.h5'
+preprocessed_valid = f'{preprocessed_path}/valid.h5'
+preprocessed_test = f'{preprocessed_path}/test.h5'
 preprocessed_files = [preprocessed_train, preprocessed_valid, preprocessed_test]
 
 img_w = 64
@@ -56,7 +59,7 @@ def load_normalized_data():
     print("Loading data...")
 
     dsfiles = ["TCIR-ALL_2017.h5", "TCIR-ATLN_EPAC_WPAC.h5", "TCIR-CPAC_IO_SH.h5"]
-    dspaths = [f'data/{file}' for file in dsfiles]
+    dspaths = [f'{data_path}/{file}' for file in dsfiles]
 
     files = [h5py.File(file, mode="r") for file in dspaths]
     data = [da.from_array(file['matrix']) for file in files]
@@ -225,7 +228,7 @@ def save_preprocessed(data=None):
     img_new_shape = (0,) + img_new_shape
     labels_new_shape = (0,) + labels_new_shape
 
-    os.makedirs(folder_path, exist_ok=True)
+    os.makedirs(preprocessed_path, exist_ok=True)
 
     print("Writing traininig file...")
     with h5py.File(preprocessed_train, mode="w") as train:
