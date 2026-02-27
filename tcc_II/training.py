@@ -50,7 +50,7 @@ def build_dataset(data, batch, img_w):
 
     return dataset, imgs.shape
 
-def load_datasets(batch):
+def load_datasets(channels, img_w, batch):
     train, valid, _ = data.preprocess(force=False)
     
     train_ds, valid_ds = build_dataset(train, batch), build_dataset(valid, batch)
@@ -103,9 +103,9 @@ def save_model(model, path):
     model.save(path)
 
 
-def main(batch=8, learning_rate=5e-5, epochs=500):
+def main(channels=[0, 3], img_w=64, batch=8, learning_rate=5e-5, epochs=500):
     
-    train_ds, valid_ds = load_datasets(batch)
+    train_ds, valid_ds = load_datasets(channels, img_w, batch)
     _, train_shape = train_ds
 
     model = build_model(train_shape[1:], learning_rate)
