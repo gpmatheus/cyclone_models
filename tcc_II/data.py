@@ -1,0 +1,275 @@
+import dask.array as da
+import numpy as np
+import h5py
+import tensorflow as tf
+import pandas as pd
+import datetime
+import os
+
+folder_path = "data/preprocessed"
+preprocessed_train = f'{folder_path}/train.h5'
+preprocessed_valid = f'{folder_path}/valid.h5'
+preprocessed_test = f'{folder_path}/test.h5'
+preprocessed_files = [preprocessed_train, preprocessed_valid, preprocessed_test]
+
+img_w = 64
+channels = [0, 3]
+
+"""
+the generated channels refers to the indexes of the used channels
+Ex.: 
+channels = [0, 3]
+generated_channels = [1] refers to the channels 3, because 3 is in
+index 1
+"""
+generated_channels = [0]
+
+def split_data(images, info):
+    years = [datetime.datetime.strptime(i, "%Y%m%d%H").year for i in list(info['time'])]
+    years = np.array(years)
+    train_values = (years >= 2003) & (years <= 2014)
+    valid_values = (years >= 2015) & (years <= 2016)
+    test_values = years == 2017
+    train_idx = np.where(train_values)[0]
+    valid_idx = np.where(valid_values)[0]
+    test_idx = np.where(test_values)[0]
+    info = info['Vmax'].to_numpy()
+    train_img, train_info = images[train_idx], info[train_idx]
+    valid_img, valid_info = images[valid_idx], info[valid_idx]
+    test_img, test_info = images[test_idx], info[test_idx]
+    return (train_img, train_info), (valid_img, valid_info), (test_img, test_info)
+
+def get_images_slice(images_shape, width):
+    start = images_shape[1] // 2 - width // 2
+    end = images_shape[1] // 2 + width // 2
+    return slice(start, end)
+
+def cut_images(images, width):
+    slc = get_images_slice(images.shape, width)
+    return images[:, slc, slc, :]
+
+def compute(img, img_1, img_2):
+    return np.abs(img - (img_1 * 2) + img_2)
+
+
+def load_normalized_data():
+    print("Loading data...")
+
+    dsfiles = ["TCIR-ALL_2017.h5", "TCIR-ATLN_EPAC_WPAC.h5", "TCIR-CPAC_IO_SH.h5"]
+    dspaths = [f'data/{file}' for file in dsfiles]
+
+    files = [h5py.File(file, mode="r") for file in dspaths]
+    data = [da.from_array(file['matrix']) for file in files]
+    info = [pd.read_hdf(file, key='info', mode='r') for file in dspaths]
+    info = pd.concat(info)
+    
+    data = da.concatenate(data, axis=0)
+    data = da.nan_to_num(data)
+    data[data > 1000] = 0
+
+    print("Calculating means...")
+    means = [da.nanmean(data[:, :, :, i]).compute() for i in channels]
+
+    print(f'Means values: {means}')
+
+    print("Calcularing standard deviations...")
+    std = [da.std(data[:, :, :, i]).compute() for i in channels]
+
+    print(f'Standard deviation values: {std}')
+
+    rotation_width = int(np.ceil(np.sqrt((img_w ** 2) * 2)))
+    if rotation_width % 2 != 0:
+        rotation_width += 1
+    
+    print("Cropping images...")
+    data = cut_images(data, rotation_width)
+
+    print("Normalizing images...")
+    for chan in range(len(channels)):
+        data[:, :, :, chan] -= means[chan]
+        data[:, :, :, chan] /= std[chan]
+    
+    data = np.array(data[:, :, :, channels])
+
+    for file in files:
+        file.close()
+    
+    return data, info
+
+
+def preprocess(force=True):
+    
+    print("Forcing preprocess...")
+    if not force:
+        print("Checking if files exist")
+        exists = all([os.path.isfile(file) for file in preprocessed_files])
+        
+        if exists:
+            print("Files exist. Loading files...")
+            with h5py.File(preprocessed_train, mode="r") as train:
+                train_imgs = train['matrix'][:]
+                train_labels = train['info'][:]
+                train = (train_imgs, train_labels)
+            
+            with h5py.File(preprocessed_valid, mode="r") as valid:
+                valid_imgs = valid['matrix'][:]
+                valid_labels = valid['info'][:]
+                valid = (valid_imgs, valid_labels)
+            
+            with h5py.File(preprocessed_test, mode="r") as test:
+                test_imgs = test['matrix'][:]
+                test_labels = test['info'][:]
+                test = (test_imgs, test_labels)
+            
+            return train, valid, test
+
+    print("Loading original data...")
+    data, info = load_normalized_data() # images, labels
+    print(f'Data shape: {data.shape}')
+    print(f'Info shape: {info.shape}')
+    
+    print("Preprocessing data...")
+    ids = info["ID"].unique() # unique ids
+
+    """
+    CREATE NEW CHANNELS
+    single_cyclone_indexes is a list of lists that contains
+    the indexes for each image of a single cyclone
+    """
+    single_cyclone_indexes = []
+
+    """
+    fills the single_cyclone_indexes with the sorted indexes of cyclones
+    """
+    print("Filling ids...")
+    for id in ids:
+        sub_info = info[info["ID"] == id]
+        sub_info = sub_info.copy()
+        sub_info['time_dt'] = sub_info['time'].apply(lambda t: datetime.datetime.strptime(str(t), "%Y%m%d%H"))
+        sorted_idx = sub_info.sort_values('time_dt').index.tolist()
+        single_cyclone_indexes.append(sorted_idx)
+    
+
+    """
+    create all new channels
+    """
+    print("Creating new channels...")
+    cyclone_new_channels = []
+    for indexes in single_cyclone_indexes:
+
+        for idx in range(2, len(indexes)):
+            current_img = data[indexes[idx], :, :, 0]
+            previous_img = data[indexes[idx - 1], :, :, 0]
+            previous_previous_img = data[indexes[idx - 2], :, :, 0]
+            new_img = compute(current_img, previous_img, previous_previous_img)
+            cyclone_new_channels.append(new_img)
+
+    cyclone_new_channels = np.array(cyclone_new_channels)
+    if len(cyclone_new_channels.shape) < 4:
+        cyclone_new_channels = np.expand_dims(cyclone_new_channels, axis=-1)
+
+    """
+    select only the cyclones to add a new channel
+    by eliminating the first two images of each cyclone
+    """
+    single_cyclone_indexes = [i[2:] for i in single_cyclone_indexes]
+
+    """
+    flatten the indexes
+    """
+    single_cyclone_indexes = [i for item in single_cyclone_indexes for i in item]
+
+    """
+    select the cyclones by indexes and concatenate the generated channel
+    """
+    data = data[single_cyclone_indexes]
+    data = np.concatenate((data, cyclone_new_channels), axis=-1)
+
+    """
+    select the labels by indexes
+    """
+    info = info.iloc[single_cyclone_indexes]
+
+    print(f'\nData shape: {data.shape}')
+
+    train, valid, test = split_data(data, info)
+    return train, valid, test
+
+
+
+
+def save_preprocessed(data=None):
+    if not data:
+        (train_imgs, train_labels), (valid_imgs, valid_labels), (test_imgs, test_labels) = preprocess()
+    else:
+        (train_imgs, train_labels), (valid_imgs, valid_labels), (test_imgs, test_labels) = data
+
+    print("\nTrain dataset:")
+    print(f'Images shape: {train_imgs.shape}')
+    print(f'Info shape: {train_labels.shape}\n')
+
+    print("\nValidation dataset:")
+    print(f'Images shape: {valid_imgs.shape}')
+    print(f'Info shape: {valid_labels.shape}\n')
+
+    print("\nTest dataset:")
+    print(f'Images shape: {test_imgs.shape}')
+    print(f'Info shape: {test_labels.shape}\n')
+
+    img_new_shape = train_imgs.shape[1:]
+    labels_new_shape = train_labels.shape[1:]
+
+    img_max_shape = (None,) + img_new_shape
+    labels_max_shape = (None,) + labels_new_shape
+
+    img_new_shape = (0,) + img_new_shape
+    labels_new_shape = (0,) + labels_new_shape
+
+    os.makedirs(folder_path, exist_ok=True)
+
+    print("Writing traininig file...")
+    with h5py.File(preprocessed_train, mode="w") as train:
+
+        if 'matrix' not in train:
+            train.create_dataset('matrix', shape=img_new_shape, maxshape=img_max_shape)
+        train['matrix'].resize(train['matrix'].shape[0] + train_imgs.shape[0], axis=0)
+        train['matrix'][-train_imgs.shape[0]:] = train_imgs
+    
+        if 'info' not in train:
+            train.create_dataset('info', shape=labels_new_shape, maxshape=labels_max_shape)
+        train['info'].resize(train['info'].shape[0] + train_labels.shape[0], axis=0)
+        train['info'][-train_labels.shape[0]:] = train_labels
+    
+    print("Writing validation file...")
+    with h5py.File(preprocessed_valid, mode="w") as valid:
+
+        if 'matrix' not in valid:
+            valid.create_dataset('matrix', shape=img_new_shape, maxshape=img_max_shape)
+        valid['matrix'].resize(valid['matrix'].shape[0] + valid_imgs.shape[0], axis=0)
+        valid['matrix'][-valid_imgs.shape[0]:] = valid_imgs
+
+        if 'info' not in valid:
+            valid.create_dataset('info', shape=labels_new_shape, maxshape=labels_max_shape)
+        valid['info'].resize(valid['info'].shape[0] + valid_labels.shape[0], axis=0)
+        valid['info'][-valid_labels.shape[0]:] = valid_labels
+    
+    print("Writing test file...")
+    with h5py.File(preprocessed_test, mode="w") as test:
+        
+        if 'matrix' not in test:
+            test.create_dataset('matrix', shape=img_new_shape, maxshape=img_max_shape)
+        test['matrix'].resize(test['matrix'].shape[0] + test_imgs.shape[0], axis=0)
+        test['matrix'][-test_imgs.shape[0]:] = test_imgs
+
+        if 'info' not in test:
+            test.create_dataset('info', shape=labels_new_shape, maxshape=labels_max_shape)
+        test['info'].resize(test['info'].shape[0] + test_labels.shape[0], axis=0)
+        test['info'][-test_labels.shape[0]:] = test_labels
+
+
+def main():
+    save_preprocessed()
+
+if __name__ == "__main__":
+    main()
+
