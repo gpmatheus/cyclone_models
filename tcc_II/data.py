@@ -7,25 +7,12 @@ import datetime
 import os
 
 data_path = os.getenv("DATA_PATH") or "data"
-
 preprocessed_path = os.getenv("PREPROCESSED_PATH") or "data/preprocessed"
 print(f'folder_path: {preprocessed_path}')
 preprocessed_train = f'{preprocessed_path}/train.h5'
 preprocessed_valid = f'{preprocessed_path}/valid.h5'
 preprocessed_test = f'{preprocessed_path}/test.h5'
 preprocessed_files = [preprocessed_train, preprocessed_valid, preprocessed_test]
-
-img_w = 64
-channels = [0, 3]
-
-"""
-the generated channels refers to the indexes of the used channels
-Ex.: 
-channels = [0, 3]
-generated_channels = [1] refers to the channels 3, because 3 is in
-index 1
-"""
-generated_channels = [0]
 
 def split_data(images, info):
     years = [datetime.datetime.strptime(i, "%Y%m%d%H").year for i in list(info['time'])]
@@ -55,7 +42,7 @@ def compute(img, img_1, img_2):
     return np.abs(img - (img_1 * 2) + img_2)
 
 
-def load_normalized_data():
+def load_normalized_data(channels, img_w):
     print("Loading data...")
 
     dsfiles = ["TCIR-ALL_2017.h5", "TCIR-ATLN_EPAC_WPAC.h5", "TCIR-CPAC_IO_SH.h5"]
@@ -100,7 +87,10 @@ def load_normalized_data():
     return data, info
 
 
-def preprocess(force=True):
+def preprocess( 
+        channels, 
+        img_w, 
+        force=True):
     
     print("Forcing preprocess...")
     if not force:
@@ -127,7 +117,7 @@ def preprocess(force=True):
             return train, valid, test
 
     print("Loading original data...")
-    data, info = load_normalized_data() # images, labels
+    data, info = load_normalized_data(channels, img_w) # images, labels
     print(f'Data shape: {data.shape}')
     print(f'Info shape: {info.shape}')
     
@@ -201,9 +191,15 @@ def preprocess(force=True):
 
 
 
-def save_preprocessed(data=None):
+def save_preprocessed(
+        channels=[0, 3],
+        img_w=64,
+        data=None):
+
     if not data:
-        (train_imgs, train_labels), (valid_imgs, valid_labels), (test_imgs, test_labels) = preprocess()
+        (train_imgs, train_labels), \
+        (valid_imgs, valid_labels), \
+        (test_imgs, test_labels) = preprocess(channels, img_w, force=True)
     else:
         (train_imgs, train_labels), (valid_imgs, valid_labels), (test_imgs, test_labels) = data
 
@@ -228,7 +224,7 @@ def save_preprocessed(data=None):
     img_new_shape = (0,) + img_new_shape
     labels_new_shape = (0,) + labels_new_shape
 
-    os.makedirs(preprocessed_path, exist_ok=True)
+    os.makedirs(data_path, exist_ok=True)
 
     print("Writing traininig file...")
     with h5py.File(preprocessed_train, mode="w") as train:

@@ -3,16 +3,12 @@ import tensorflow as tf
 import numpy as np
 import data
 from pathlib import Path
+from functools import partial
 keras = tf.keras
 
-LR = 5e-5
-BATCH = 8
-EPOCHS = 500
-IMG_W = 64
-
-def parse_example(image, label):
+def parse_example(image, label, img_w):
     image = tf.cast(image, tf.float32)
-    image = preprocess_image_tf(image, IMG_W)
+    image = preprocess_image_tf(image, img_w)
     return image, label
 
 def preprocess_image_tf(image, img_w):
@@ -41,21 +37,21 @@ def preprocess_image_tf(image, img_w):
     rotated = tf.squeeze(rotated, 0)
     return tf.image.resize_with_crop_or_pad(rotated, img_w, img_w)
 
-def build_dataset(data, batch):
+def build_dataset(data, batch, img_w):
     imgs, labels = data
     labels = labels['Vmax']
 
     dataset = tf.data.Dataset.from_tensor_slices((imgs, labels))
     dataset = dataset.repeat()
     dataset = dataset.shuffle(buffer_size=len(imgs))
-    dataset = dataset.map(parse_example, num_parallel_calls=tf.data.AUTOTUNE)
+    dataset = dataset.map(partial(parse_example, img_w=img_w), num_parallel_calls=tf.data.AUTOTUNE)
     dataset = dataset.batch(batch)
     dataset = dataset.prefetch(tf.data.AUTOTUNE)
 
     return dataset, imgs.shape
 
 def load_datasets(batch):
-    train, valid, _ = data.preprocess(force=True)
+    train, valid, _ = data.preprocess(force=False)
     
     train_ds, valid_ds = build_dataset(train, batch), build_dataset(valid, batch)
     return train_ds, valid_ds
@@ -107,13 +103,13 @@ def save_model(model, path):
     model.save(path)
 
 
-def main():
+def main(batch=8, learning_rate=5e-5, epochs=500):
     
-    train_ds, valid_ds = load_datasets(BATCH)
+    train_ds, valid_ds = load_datasets(batch)
     _, train_shape = train_ds
 
-    model = build_model(train_shape[1:], LR)
-    model = train_model(model, train_ds, valid_ds, EPOCHS, BATCH)
+    model = build_model(train_shape[1:], learning_rate)
+    model = train_model(model, train_ds, valid_ds, epochs, batch)
     save_model(model, Path("model"))
 
 if __name__ == "__main__":
