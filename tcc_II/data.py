@@ -123,7 +123,6 @@ def preprocess(channels, generated_channels, img_w, force=True):
             print(f"Test labels shape: {test_labels.shape}")
             return train, valid, test
 
-    print("Loading original data...")
     data, info = load_normalized_data(channels, img_w)  # images, labels
     print(f"Data shape: {data.shape}")
     print(f"Info shape: {info.shape}")
