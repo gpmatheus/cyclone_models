@@ -114,6 +114,12 @@ def preprocess(
                 test_labels = test['info'][:]
                 test = (test_imgs, test_labels)
             
+            print(f'\nTrain images shape: {train_imgs.shape}')
+            print(f'Train labels shape: {train_labels.shape}')
+            print(f'\nValidation images shape: {valid_imgs.shape}')
+            print(f'Validation labels shape: {valid_labels.shape}')
+            print(f'\nTest images shape: {test_imgs.shape}')
+            print(f'Test labels shape: {test_labels.shape}')
             return train, valid, test
 
     print("Loading original data...")

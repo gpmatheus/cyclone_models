@@ -108,6 +108,7 @@ def main(channels=[0, 3], img_w=64, batch=8, learning_rate=5e-5, epochs=500):
     _, train_shape = train_ds
 
     model = build_model(train_shape[1:], learning_rate)
+    model.summary()
     model = train_model(model, train_ds, valid_ds, epochs, batch)
     save_model(model, Path("model"))
 
