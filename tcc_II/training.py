@@ -3,12 +3,11 @@ import tensorflow as tf
 import numpy as np
 import data
 from pathlib import Path
-from functools import partial
 keras = tf.keras
 
-def parse_example(image, label, img_w):
+def parse_example(image, label):
     image = tf.cast(image, tf.float32)
-    image = preprocess_image_tf(image, img_w)
+    image = preprocess_image_tf(image, 64)
     return image, label
 
 def preprocess_image_tf(image, img_w):
@@ -43,7 +42,7 @@ def build_dataset(data, batch, img_w):
     dataset = tf.data.Dataset.from_tensor_slices((imgs, labels))
     dataset = dataset.repeat()
     dataset = dataset.shuffle(buffer_size=len(imgs))
-    dataset = dataset.map(partial(parse_example, img_w=img_w), num_parallel_calls=tf.data.AUTOTUNE)
+    dataset = dataset.map(parse_example, num_parallel_calls=tf.data.AUTOTUNE)
     dataset = dataset.batch(batch)
     dataset = dataset.prefetch(tf.data.AUTOTUNE)
 
