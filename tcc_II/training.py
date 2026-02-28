@@ -7,10 +7,10 @@ keras = tf.keras
 
 def parse_example(image, label):
     image = tf.cast(image, tf.float32)
-    image = preprocess_image_tf(image, 64)
+    image = preprocess_image_tf(image)
     return image, label
 
-def preprocess_image_tf(image, img_w):
+def preprocess_image_tf(image):
     angle_rad = tf.random.uniform([], 0, 2 * np.pi)
     image_shape = tf.shape(image)[0:2]
     cx = tf.cast(image_shape[1] / 2, tf.float32)
@@ -34,9 +34,9 @@ def preprocess_image_tf(image, img_w):
         fill_value=0.0
     )
     rotated = tf.squeeze(rotated, 0)
-    return tf.image.resize_with_crop_or_pad(rotated, img_w, img_w)
+    return tf.image.resize_with_crop_or_pad(rotated, 64, 64)
 
-def build_dataset(data, batch, img_w):
+def build_dataset(data, batch):
     imgs, labels = data
 
     dataset = tf.data.Dataset.from_tensor_slices((imgs, labels))
@@ -51,7 +51,7 @@ def build_dataset(data, batch, img_w):
 def load_datasets(channels, img_w, batch):
     train, valid, _ = data.preprocess(channels, img_w, force=False)
     
-    train_ds, valid_ds = build_dataset(train, batch, img_w), build_dataset(valid, batch, img_w)
+    train_ds, valid_ds = build_dataset(train, batch), build_dataset(valid, batch)
     return train_ds, valid_ds
 
 
