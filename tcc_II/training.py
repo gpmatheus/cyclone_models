@@ -53,7 +53,7 @@ def build_dataset(data, batch, img_w):
 def load_datasets(channels, img_w, batch):
     train, valid, _ = data.preprocess(channels, img_w, force=False)
     
-    train_ds, valid_ds = build_dataset(train, batch), build_dataset(valid, batch)
+    train_ds, valid_ds = build_dataset(train, batch, img_w), build_dataset(valid, batch, img_w)
     return train_ds, valid_ds
 
 
