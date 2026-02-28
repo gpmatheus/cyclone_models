@@ -39,6 +39,9 @@ def preprocess_image_tf(image):
 def build_dataset(data, batch):
     imgs, labels = data
 
+    imgs = imgs.astype("float32")
+    labels = labels.astype("float32")
+
     dataset = tf.data.Dataset.from_tensor_slices((imgs, labels))
     dataset = dataset.repeat()
     dataset = dataset.shuffle(buffer_size=len(imgs))
@@ -104,9 +107,8 @@ def save_model(model, path):
 def main(channels=[0, 3], img_w=64, batch=8, learning_rate=5e-5, epochs=500):
     
     train_ds, valid_ds = load_datasets(channels, img_w, batch)
-    _, train_shape = train_ds
 
-    model = build_model(train_shape[1:], learning_rate)
+    model = build_model((img_w, img_w, len(channels) + 1), learning_rate)
     model.summary()
     model = train_model(model, train_ds, valid_ds, epochs, batch)
     save_model(model, Path("model"))
