@@ -6,6 +6,8 @@ import numpy as np
 
 hdf5_file = "/Users/matheussonego/Documents/Unipampa/tcc/cyclone_models/data/TCIR-ATLN_EPAC_WPAC.h5"
 dataset_key = "matrix"
+channels = [0, 3]
+generated_channels = [0]
 
 images_file = h5py.File(hdf5_file, mode='r')['matrix']
 labels_file = pd.read_hdf(hdf5_file, key='info', mode='r')[["ID", "Vmax", "time"]]
@@ -14,27 +16,55 @@ labels_file = pd.read_hdf(hdf5_file, key='info', mode='r')[["ID", "Vmax", "time"
 ids = list(labels_file['ID'].unique())
 
 # state
-index = {"idindex": 0, "index": 0, "channel": 0}
+index = {"idindex": 0, "index": 0}
 
-f, arr = plt.subplots(1, 3)
+f, arr = plt.subplots(len(channels) + len(generated_channels), 3)
 plt.subplots_adjust(bottom=0.2)  # espaço pros botões
 
 indexes = labels_file[labels_file['ID'] == ids[index["index"]]].index.tolist()
 images = images_file[indexes]
 labels = labels_file.iloc[indexes]
 
+white_img = np.full(images.shape[1: -1], 1.0)
+
 def repaint():
-    arr[0].imshow(images[index["index"], :, :, index["channel"]], cmap="gray")
-    arr[0].set_title(f'[{index["index"]}]')
-    arr[0].axis('off')
 
-    arr[1].imshow(images[index["index"] + 1, :, :, index["channel"]], cmap="gray")
-    arr[1].set_title(f'[{index["index"] + 1}]')
-    arr[1].axis('off')
+    for i, ch in enumerate(channels):
+        
+        arr[i][0].imshow(images[index["index"], :, :, ch], cmap="gray")
+        if i == 0:
+            arr[i][0].set_title(f'[{index["index"]}]')
+        arr[i][0].axis('off')
 
-    arr[2].imshow(images[index["index"] + 2, :, :, index["channel"]], cmap="gray")
-    arr[2].set_title(f'[{index["index"] + 2}]')
-    arr[2].axis('off')
+        arr[i][1].imshow(images[index["index"] + 1, :, :, ch], cmap="gray")
+        if i == 0:
+            arr[i][1].set_title(f'[{index["index"] + 1}]')
+        arr[i][1].axis('off')
+
+        arr[i][2].imshow(images[index["index"] + 2, :, :, ch], cmap="gray")
+        if i == 0:
+            arr[i][2].set_title(f'[{index["index"] + 2}]')
+        arr[i][2].axis('off')
+
+
+    for i in range(3):
+
+        if index["index"] + i >= 2:
+            current_img = images[index["index"] + i, :, :, 0]
+            previous_img = images[index["index"] + i - 1, :, :, 0]
+            previous_previous_img = images[index["index"] + i - 2, :, :, 0]
+
+            new_chan = np.abs(current_img - (previous_img * 2) + previous_previous_img)
+            # new_chan = current_img - (previous_img * 2) + previous_previous_img
+
+            arr[-1][i].imshow(new_chan, cmap="gray")
+            arr[-1][i].axis('off')
+        
+        elif i < 3:
+            arr[-1][i].imshow(white_img, cmap="gray")
+            arr[-1][i].axis('off')
+
+
 
     plt.suptitle(ids[index["idindex"]])
 
@@ -51,11 +81,6 @@ def change_cyclone():
     images = images_file[indexes]
     labels = labels_file.iloc[indexes]
     index["index"] = 0
-    repaint()
-
-def set_channel(channel):
-    print("changing channel...")
-    index["channel"] = channel
     repaint()
 
 def previous_cyclone():
@@ -78,28 +103,10 @@ def right_image():
     index["index"] = index["index"] + 1 if index["index"] + 3 < images.shape[0] else index["index"]
     repaint()
 
-with h5py.File(hdf5_file, mode='r') as file:
-    shape = file['matrix'].shape
-nchannels = shape[-1]
-
 
 # UI
 
 button_w, button_h = 0.1, 0.075
-
-# build channels hud
-channel_buttons_hud_w = .5
-starts = np.linspace(
-    .5 - channel_buttons_hud_w / 2, 
-    .5 + channel_buttons_hud_w / 2 - button_w, 
-    nchannels
-)
-channel_buttons = []
-for i, a in enumerate(starts):
-    bt = Button(plt.axes([a, 0.0, button_w, button_h]), f"{i}")
-    bt.on_clicked(lambda _, i=i: set_channel(i))
-    channel_buttons.append(bt)
-
 
 # build cyclones hud
 ch = plt.axes([0.0, .55, button_w, button_h])
@@ -122,4 +129,4 @@ right.on_clicked(lambda _: right_image())
 
 plt.show()
 
-file.close()
+images_file.close()
