@@ -24,10 +24,9 @@ def split_data(images, info):
     train_idx = np.where(train_values)[0]
     valid_idx = np.where(valid_values)[0]
     test_idx = np.where(test_values)[0]
-    info = info["Vmax"].to_numpy()
-    train_img, train_info = images[train_idx], info[train_idx]
-    valid_img, valid_info = images[valid_idx], info[valid_idx]
-    test_img, test_info = images[test_idx], info[test_idx]
+    train_img, train_info = images[train_idx], info.iloc[train_idx]
+    valid_img, valid_info = images[valid_idx], info.iloc[valid_idx]
+    test_img, test_info = images[test_idx], info.iloc[test_idx]
     return (train_img, train_info), (valid_img, valid_info), (test_img, test_info)
 
 
@@ -56,6 +55,7 @@ def load_normalized_data(channels, img_w):
     data = [da.from_array(file["matrix"]) for file in files]
     info = [pd.read_hdf(file, key="info", mode="r") for file in dspaths]
     info = pd.concat(info)
+    print(f"Info type: {type(info)}")
 
     data = da.concatenate(data, axis=0)
     data = da.nan_to_num(data)
@@ -252,12 +252,8 @@ def save_preprocessed(channels=[0, 3], generated_channels=[0], img_w=64, data=No
         train["matrix"].resize(train["matrix"].shape[0] + train_imgs.shape[0], axis=0)
         train["matrix"][-train_imgs.shape[0] :] = train_imgs
 
-        if "info" not in train:
-            train.create_dataset(
-                "info", shape=labels_new_shape, maxshape=labels_max_shape
-            )
-        train["info"].resize(train["info"].shape[0] + train_labels.shape[0], axis=0)
-        train["info"][-train_labels.shape[0] :] = train_labels
+    train_labels.to_hdf(preprocessed_train, key="info", mode="a")
+        
 
     print("Writing validation file...")
     with h5py.File(preprocessed_valid, mode="w") as valid:
@@ -267,12 +263,7 @@ def save_preprocessed(channels=[0, 3], generated_channels=[0], img_w=64, data=No
         valid["matrix"].resize(valid["matrix"].shape[0] + valid_imgs.shape[0], axis=0)
         valid["matrix"][-valid_imgs.shape[0] :] = valid_imgs
 
-        if "info" not in valid:
-            valid.create_dataset(
-                "info", shape=labels_new_shape, maxshape=labels_max_shape
-            )
-        valid["info"].resize(valid["info"].shape[0] + valid_labels.shape[0], axis=0)
-        valid["info"][-valid_labels.shape[0] :] = valid_labels
+    valid_labels.to_hdf(preprocessed_valid, key="info", mode="a")
 
     print("Writing test file...")
     with h5py.File(preprocessed_test, mode="w") as test:
@@ -282,12 +273,7 @@ def save_preprocessed(channels=[0, 3], generated_channels=[0], img_w=64, data=No
         test["matrix"].resize(test["matrix"].shape[0] + test_imgs.shape[0], axis=0)
         test["matrix"][-test_imgs.shape[0] :] = test_imgs
 
-        if "info" not in test:
-            test.create_dataset(
-                "info", shape=labels_new_shape, maxshape=labels_max_shape
-            )
-        test["info"].resize(test["info"].shape[0] + test_labels.shape[0], axis=0)
-        test["info"][-test_labels.shape[0] :] = test_labels
+    test_labels.to_hdf(preprocessed_test, key="info", mode="a")
 
 
 def main():
