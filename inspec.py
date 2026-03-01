@@ -6,8 +6,10 @@ import numpy as np
 
 hdf5_file = "/Users/matheussonego/Documents/Unipampa/tcc/cyclone_models/data/TCIR-ATLN_EPAC_WPAC.h5"
 dataset_key = "matrix"
-channels = [0, 3]
+
 generated_channels = [0]
+channels = [0, 3]
+show_generated_channels = True
 
 images_file = h5py.File(hdf5_file, mode='r')['matrix']
 labels_file = pd.read_hdf(hdf5_file, key='info', mode='r')[["ID", "Vmax", "time"]]
@@ -18,7 +20,9 @@ ids = list(labels_file['ID'].unique())
 # state
 index = {"idindex": 0, "index": 0}
 
-f, arr = plt.subplots(len(channels) + len(generated_channels), 3)
+
+subplots_channels = len(channels) + (len(generated_channels) if show_generated_channels else 0)
+f, arr = plt.subplots(subplots_channels, 3)
 plt.subplots_adjust(bottom=0.2)  # espaço pros botões
 
 indexes = labels_file[labels_file['ID'] == ids[index["index"]]].index.tolist()
@@ -47,22 +51,23 @@ def repaint():
         arr[i][2].axis('off')
 
 
-    for i in range(3):
+    if show_generated_channels:
+        for i in range(3):
 
-        if index["index"] + i >= 2:
-            current_img = images[index["index"] + i, :, :, 0]
-            previous_img = images[index["index"] + i - 1, :, :, 0]
-            previous_previous_img = images[index["index"] + i - 2, :, :, 0]
+            if index["index"] + i >= 2:
+                current_img = images[index["index"] + i, :, :, 0]
+                previous_img = images[index["index"] + i - 1, :, :, 0]
+                previous_previous_img = images[index["index"] + i - 2, :, :, 0]
 
-            new_chan = np.abs(current_img - (previous_img * 2) + previous_previous_img)
-            # new_chan = current_img - (previous_img * 2) + previous_previous_img
+                new_chan = np.abs(current_img - (previous_img * 2) + previous_previous_img)
+                # new_chan = current_img - (previous_img * 2) + previous_previous_img
 
-            arr[-1][i].imshow(new_chan, cmap="gray")
-            arr[-1][i].axis('off')
-        
-        elif i < 3:
-            arr[-1][i].imshow(white_img, cmap="gray")
-            arr[-1][i].axis('off')
+                arr[-1][i].imshow(new_chan, cmap="gray")
+                arr[-1][i].axis('off')
+            
+            elif i < 3:
+                arr[-1][i].imshow(white_img, cmap="gray")
+                arr[-1][i].axis('off')
 
 
 
