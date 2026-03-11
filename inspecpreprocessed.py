@@ -5,26 +5,18 @@ from matplotlib.widgets import Button
 import numpy as np
 import datetime
 
-hdf5_file = "/Users/matheussonego/Documents/Unipampa/tcc/cyclone_models/data/TCIR-ATLN_EPAC_WPAC.h5"
+hdf5_file = "/Users/matheussonego/Documents/Unipampa/tcc/cyclone_models/data/preprocessed/train.h5"
 dataset_key = "matrix"
 
 generated_channels = [0]
-channels = [0]
-show_generated_channels = True
-chop = True
-
-def get_images_slice(images_shape, width):
-    start = images_shape[1] // 2 - width // 2
-    end = images_shape[1] // 2 + width // 2
-    return slice(start, end)
-
-chop_slc = get_images_slice((201, 201, 2), 92)
+channels = [0, 2]
+show_generated_channels = False
 
 images_file = h5py.File(hdf5_file, mode='r')['matrix']
 labels_file = pd.read_hdf(hdf5_file, key='info', mode='r')[["ID", "Vmax", "time"]]
 
 # ids of cyclones
-ids = list(labels_file['ID'].unique())
+ids = list(labels_file[:]['ID'].unique())
 
 # state
 index = {"idindex": 0, "index": 0}
@@ -34,9 +26,15 @@ subplots_channels = len(channels) + (len(generated_channels) if show_generated_c
 f, arr = plt.subplots(subplots_channels, 3)
 plt.subplots_adjust(bottom=0.2)  # espaço pros botões
 
-indexes = labels_file[labels_file['ID'] == ids[index["idindex"]]].index.tolist()
-indexes = list(set(indexes))
-indexes.sort()
+sub_info = labels_file[labels_file['ID'] == ids[index["idindex"]]]
+
+sub_info = sub_info.sort_values("time")
+
+print(sub_info)
+
+indexes = sub_info.index
+
+print(indexes)
 
 images = images_file[indexes]
 labels = labels_file.iloc[indexes]
@@ -52,52 +50,20 @@ def repaint():
 
     for i, ch in enumerate(channels):
         
-        if chop:
-            arr[i][0].imshow(images[index["index"], chop_slc, chop_slc, ch], cmap="gray")
-        else:
-            arr[i][0].imshow(images[index["index"], :, :, ch], cmap="gray")
+        arr[i][0].imshow(images[index["index"], :, :, ch], cmap="gray")
         if i == 0:
             arr[i][0].set_title(f'[{index["index"]}] - {labels.iloc[index["index"]]["time"]}')
         arr[i][0].axis('off')
 
-        if chop:
-            arr[i][1].imshow(images[index["index"] + 1, chop_slc, chop_slc, ch], cmap="gray")
-        else:
-            arr[i][1].imshow(images[index["index"] + 1, :, :, ch], cmap="gray")
+        arr[i][1].imshow(images[index["index"] + 1, :, :, ch], cmap="gray")
         if i == 0:
             arr[i][1].set_title(f'[{index["index"] + 1}] - {labels.iloc[index["index"] + 1]["time"]}')
         arr[i][1].axis('off')
 
-        if chop:
-            arr[i][2].imshow(images[index["index"] + 2, chop_slc, chop_slc, ch], cmap="gray")
-        else:
-            arr[i][2].imshow(images[index["index"] + 2, :, :, ch], cmap="gray")
+        arr[i][2].imshow(images[index["index"] + 2, :, :, ch], cmap="gray")
         if i == 0:
             arr[i][2].set_title(f'[{index["index"] + 2}] - {labels.iloc[index["index"] + 2]["time"]}')
         arr[i][2].axis('off')
-
-
-    if show_generated_channels:
-        for i in range(3):
-
-            if index["index"] + i >= 2:
-                current_img = images[index["index"] + i, :, :, 0]
-                previous_img = images[index["index"] + i - 1, :, :, 0]
-                previous_previous_img = images[index["index"] + i - 2, :, :, 0]
-
-                new_chan = np.abs(current_img - (previous_img * 2) + previous_previous_img)
-                # new_chan = current_img - (previous_img * 2) + previous_previous_img
-
-                if chop:
-                    new_chan = new_chan[chop_slc, chop_slc]
-
-                arr[-1][i].imshow(new_chan, cmap="gray")
-                arr[-1][i].axis('off')
-            
-            elif i < 3:
-                arr[-1][i].imshow(white_img, cmap="gray")
-                arr[-1][i].axis('off')
-
 
 
     plt.suptitle(ids[index["idindex"]])

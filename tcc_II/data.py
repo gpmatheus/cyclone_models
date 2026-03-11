@@ -24,6 +24,11 @@ def split_data(images, info):
     train_idx = np.where(train_values)[0]
     valid_idx = np.where(valid_values)[0]
     test_idx = np.where(test_values)[0]
+
+    print(f"{len(train_idx)}")
+    print(f"{len(valid_idx)}")
+    print(f"{len(test_idx)}")
+
     train_img, train_info = images[train_idx], info.iloc[train_idx]
     valid_img, valid_info = images[valid_idx], info.iloc[valid_idx]
     test_img, test_info = images[test_idx], info.iloc[test_idx]
@@ -55,9 +60,10 @@ def load_normalized_data(channels, img_w):
     data = [da.from_array(file["matrix"]) for file in files]
     info = [pd.read_hdf(file, key="info", mode="r") for file in dspaths]
     info = pd.concat(info)
-    print(f"Info type: {type(info)}")
 
     data = da.concatenate(data, axis=0)
+
+    print(f"Loaded dataset: Images {data.shape} - Labels {info.shape}")
     data = da.nan_to_num(data)
     data[data > 1000] = 0
 
@@ -142,33 +148,48 @@ def preprocess(channels, generated_channels, img_w, force=True):
     """
     print("Filling ids...")
     for id in ids:
+
+        print(f"\nFinding images of: {id}")
         sub_info = info[info["ID"] == id]
-        sub_info = sub_info.copy()
-        sub_info["time_dt"] = sub_info["time"].apply(
-            lambda t: datetime.datetime.strptime(str(t), "%Y%m%d%H")
-        )
-        sorted_idx = sub_info.sort_values("time_dt").index.tolist()
-        single_cyclone_indexes.append(sorted_idx)
+        
+        sub_info = sub_info.sort_values("time")
+
+        sorted_idx = sub_info.index
+
+        print(f"{len(sorted_idx)} found.")
+        single_cyclone_indexes.append((id, sorted_idx))
 
     """
     create all new channels
     """
     print("Creating new channels...")
     cyclone_new_channels = []
-    for indexes in single_cyclone_indexes:
 
+    for id, indexes in single_cyclone_indexes:
+
+        images = data[indexes]
+        labels = info.iloc[indexes]
+
+        # sort values
+        labels = labels.sort_values("time").reset_index(drop=True)
+        images = images[labels.index]
+
+        # add sorted labels to sorted_labels list
+        # labels = labels[2:]
+
+        print(f"Generating channels for cyclone {id} of {len(indexes)} images")
         for idx in range(2, len(indexes)):
 
             new_imgs = None
             for gen_ch in generated_channels:
 
-                current_img = data[indexes[idx], :, :, gen_ch]
-                previous_img = data[indexes[idx - 1], :, :, gen_ch]
-                previous_previous_img = data[indexes[idx - 2], :, :, gen_ch]
+                current_img = images[idx, :, :, gen_ch]
+                previous_img = images[idx - 1, :, :, gen_ch]
+                previous_previous_img = images[idx - 2, :, :, gen_ch]
                 new_img = compute(current_img, previous_img, previous_previous_img)
 
                 if not new_imgs:
-                    new_imgs = new_img
+                    new_imgs = np.expand_dims(new_img, axis=-1)
                 else:
                     new_imgs = np.concatenate((new_imgs, new_img), axis=-1)
 
@@ -178,31 +199,55 @@ def preprocess(channels, generated_channels, img_w, force=True):
     if len(cyclone_new_channels.shape) < 4:
         cyclone_new_channels = np.expand_dims(cyclone_new_channels, axis=-1)
 
+
     """
     select only the cyclones to add a new channel
     by eliminating the first two images of each cyclone
     """
-    single_cyclone_indexes = [i[2:] for i in single_cyclone_indexes]
+    # single_cyclone_indexes = [i[2:] for _, i in single_cyclone_indexes]
+
 
     """
-    flatten the indexes
+    load cyclones
     """
-    single_cyclone_indexes = [i for item in single_cyclone_indexes for i in item]
+    print("\nLoading processed images\n")
+    # images = None
+    # labels = None
+    # for i, (id, cyc_idx) in enumerate(single_cyclone_indexes):
+    #     print(f"{i}/{len(single_cyclone_indexes)} - Loading from cyclone {id}")
+    #     cyc_idx = cyc_idx[2:]
+    #     imgs = data[cyc_idx]
+    #     lbls = info.iloc[cyc_idx]
+    #     if images is not None and labels is not None:
+    #         images = np.concatenate((images, imgs), axis=0)
+    #         labels = np.concatenate((labels, lbls), axis=0)
+    #     else:
+    #         images = imgs
+    #         labels = lbls
 
-    """
-    select the cyclones by indexes and concatenate the generated channel
-    """
-    data = data[single_cyclone_indexes]
-    data = np.concatenate((data, cyclone_new_channels), axis=-1)
+    images = ()
+    labels = []
+    for id, cyc_idx in single_cyclone_indexes:
+        print(cyc_idx)
+        cyc_idx = cyc_idx[2:]
+        imgs = data[cyc_idx]
+        lbls = info.iloc[cyc_idx]
+        images += (imgs,)
+        labels.append(lbls)
+    
+    print("Concatenating images...")
+    images = np.concatenate(images, axis=0)
 
-    """
-    select the labels by indexes
-    """
-    info = info.iloc[single_cyclone_indexes]
+    print("Concatenating labels...")
+    labels = pd.concat(labels, axis=0)
 
-    print(f"\nData shape: {data.shape}")
 
-    train, valid, test = split_data(data, info)
+    print(f"\nData shape: {images.shape}")
+
+    images = np.concatenate((images, cyclone_new_channels), axis=-1)
+    print(f"Data shape: {images.shape}")
+
+    train, valid, test = split_data(images, labels)
     return train, valid, test
 
 
@@ -245,6 +290,8 @@ def save_preprocessed(channels=[0, 3], generated_channels=[0], img_w=64, data=No
     os.makedirs(data_path, exist_ok=True)
 
     print("Writing traininig file...")
+    print(train_imgs.shape)
+    print(train_labels.shape)
     with h5py.File(preprocessed_train, mode="w") as train:
 
         if "matrix" not in train:
@@ -256,6 +303,8 @@ def save_preprocessed(channels=[0, 3], generated_channels=[0], img_w=64, data=No
         
 
     print("Writing validation file...")
+    print(valid_imgs.shape)
+    print(valid_labels.shape)
     with h5py.File(preprocessed_valid, mode="w") as valid:
 
         if "matrix" not in valid:
@@ -266,6 +315,8 @@ def save_preprocessed(channels=[0, 3], generated_channels=[0], img_w=64, data=No
     valid_labels.to_hdf(preprocessed_valid, key="info", mode="a")
 
     print("Writing test file...")
+    print(test_imgs.shape)
+    print(test_labels.shape)
     with h5py.File(preprocessed_test, mode="w") as test:
 
         if "matrix" not in test:
