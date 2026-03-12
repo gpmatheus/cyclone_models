@@ -62,6 +62,9 @@ def load_normalized_data(channels, img_w):
     info = pd.concat(info)
 
     data = da.concatenate(data, axis=0)
+    
+    # Reset index para evitar duplicatas quando concatenando múltiplos arquivos
+    info = info.reset_index(drop=True)
 
     print(f"Loaded dataset: Images {data.shape} - Labels {info.shape}")
     data = da.nan_to_num(data)
@@ -165,6 +168,8 @@ def preprocess(channels, generated_channels, img_w, force=True):
     print("Creating new channels...")
     cyclone_new_channels = []
 
+    inittotal = 0
+    endtotal = 0
     for id, indexes in single_cyclone_indexes:
 
         images = data[indexes]
@@ -177,7 +182,8 @@ def preprocess(channels, generated_channels, img_w, force=True):
         # add sorted labels to sorted_labels list
         # labels = labels[2:]
 
-        print(f"Generating channels for cyclone {id} of {len(indexes)} images")
+        print(f"Generating channels for cyclone {id} of {len(indexes)} images", end="")
+        sum = 0
         for idx in range(2, len(indexes)):
 
             new_imgs = None
@@ -194,6 +200,13 @@ def preprocess(channels, generated_channels, img_w, force=True):
                     new_imgs = np.concatenate((new_imgs, new_img), axis=-1)
 
             cyclone_new_channels.append(new_imgs)
+            sum += 1
+        print(f" - {len(indexes)} -> {sum}")
+        inittotal += len(indexes)
+        endtotal += sum
+    
+    print(f"Init total: {inittotal}")
+    print(f"End total: {endtotal}")
 
     cyclone_new_channels = np.array(cyclone_new_channels)
     if len(cyclone_new_channels.shape) < 4:
@@ -240,7 +253,7 @@ def preprocess(channels, generated_channels, img_w, force=True):
 
     print("Concatenating labels...")
     labels = pd.concat(labels, axis=0)
-
+    labels = labels.reset_index(drop=True)
 
     print(f"\nData shape: {images.shape}")
 
