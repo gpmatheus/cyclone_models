@@ -245,7 +245,6 @@ def preprocess(channels, generated_channels, img_w, force=True):
     images = ()
     labels = []
     for id, cyc_idx in single_cyclone_indexes:
-        print(cyc_idx)
         cyc_idx = cyc_idx[2:]  # Remove as duas primeiras imagens
         imgs = data[cyc_idx]
         lbls = info.iloc[cyc_idx]
