@@ -54,6 +54,7 @@ def build_dataset(data, batch):
     imgs, labels = data
 
     imgs = imgs.astype("float32")
+    labels = labels["Vmax"].astype("float32")
 
     dataset = tf.data.Dataset.from_tensor_slices((imgs, labels))
     dataset = dataset.repeat()
