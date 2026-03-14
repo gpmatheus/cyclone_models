@@ -120,7 +120,6 @@ def preprocess(channels, generated_channels, img_w, force=True):
     # img_w: largura da imagem
     # force: força o pré-processamento mesmo se arquivos existirem
 
-    print("Forcing preprocess...")
     if not force:
         print("Checking if files exist")
         exists = all([os.path.isfile(file) for file in preprocessed_files])
