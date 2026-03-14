@@ -6,6 +6,8 @@ import pandas as pd
 import datetime
 import os
 
+# Definição dos caminhos para os dados
+# Usa variáveis de ambiente se definidas, senão usa caminhos padrão
 data_path = os.getenv("DATA_PATH") or "data"
 preprocessed_path = os.getenv("PREPROCESSED_PATH") or "data/preprocessed"
 print(f"folder_path: {preprocessed_path}")
@@ -16,6 +18,8 @@ preprocessed_files = [preprocessed_train, preprocessed_valid, preprocessed_test]
 
 
 def split_data(images, info):
+    # Divide os dados em conjuntos de treino, validação e teste baseado nos anos
+    # Treino: 2003-2014, Validação: 2015-2016, Teste: 2017
     years = [datetime.datetime.strptime(i, "%Y%m%d%H").year for i in list(info["time"])]
     years = np.array(years)
     train_values = (years >= 2003) & (years <= 2014)
@@ -36,21 +40,27 @@ def split_data(images, info):
 
 
 def get_images_slice(images_shape, width):
+    # Calcula o slice para cortar a imagem centralizada com a largura especificada
     start = images_shape[1] // 2 - width // 2
     end = images_shape[1] // 2 + width // 2
     return slice(start, end)
 
 
 def cut_images(images, width):
+    # Corta as imagens para o tamanho especificado, centralizando o corte
     slc = get_images_slice(images.shape, width)
     return images[:, slc, slc, :]
 
 
 def compute(img, img_1, img_2):
+    # Calcula a diferença absoluta entre imagens consecutivas para detecção de movimento
     return np.abs(img - (img_1 * 2) + img_2)
 
 
 def load_normalized_data(channels, img_w):
+    # Carrega e normaliza os dados de imagens de ciclones
+    # channels: lista de canais a serem usados
+    # img_w: largura da imagem final
     print("Loading data...")
 
     dsfiles = ["TCIR-ALL_2017.h5", "TCIR-ATLN_EPAC_WPAC.h5", "TCIR-CPAC_IO_SH.h5"]
@@ -80,6 +90,7 @@ def load_normalized_data(channels, img_w):
 
     print(f"Standard deviation values: {std}")
 
+    # Calcula a largura para rotação (diagonal da imagem quadrada)
     rotation_width = int(np.ceil(np.sqrt((img_w**2) * 2)))
     if rotation_width % 2 != 0:
         rotation_width += 1
@@ -88,12 +99,15 @@ def load_normalized_data(channels, img_w):
     data = cut_images(data, rotation_width)
 
     print("Normalizing images...")
+    # Normaliza cada canal subtraindo a média e dividindo pelo desvio padrão
     for chan in range(len(channels)):
         data[:, :, :, chan] -= means[chan]
         data[:, :, :, chan] /= std[chan]
 
+    # Seleciona apenas os canais especificados
     data = np.array(data[:, :, :, channels])
 
+    # Fecha os arquivos HDF5
     for file in files:
         file.close()
 
@@ -101,6 +115,11 @@ def load_normalized_data(channels, img_w):
 
 
 def preprocess(channels, generated_channels, img_w, force=True):
+    # Pré-processa os dados, gerando novos canais e dividindo em treino/validação/teste
+    # channels: canais originais a usar
+    # generated_channels: canais para gerar novos (diferença absoluta)
+    # img_w: largura da imagem
+    # force: força o pré-processamento mesmo se arquivos existirem
 
     print("Forcing preprocess...")
     if not force:
@@ -109,6 +128,7 @@ def preprocess(channels, generated_channels, img_w, force=True):
 
         if exists:
             print("Files exist. Loading files...")
+            # Carrega os dados pré-processados se já existirem
             with h5py.File(preprocessed_train, mode="r") as train:
                 train_imgs = train["matrix"][:]
                 train_labels = train["info"][:]
@@ -144,12 +164,14 @@ def preprocess(channels, generated_channels, img_w, force=True):
     single_cyclone_indexes is a list of lists that contains
     the indexes for each image of a single cyclone
     """
+    # Lista para armazenar índices de imagens de cada ciclone
     single_cyclone_indexes = []
 
     """
     fills the single_cyclone_indexes with the sorted indexes of cyclones
     """
     print("Filling ids...")
+    # Preenche a lista com índices ordenados por tempo para cada ciclone
     for id in ids:
 
         print(f"\nFinding images of: {id}")
@@ -166,6 +188,7 @@ def preprocess(channels, generated_channels, img_w, force=True):
     create all new channels
     """
     print("Creating new channels...")
+    # Cria novos canais calculando diferenças absolutas entre imagens consecutivas
     cyclone_new_channels = []
 
     inittotal = 0
@@ -185,7 +208,7 @@ def preprocess(channels, generated_channels, img_w, force=True):
         print(f"Generating channels for cyclone {id} of {len(indexes)} images", end="")
         sum = 0
         for idx in range(2, len(indexes)):
-
+            # Para cada imagem a partir da terceira, calcula novos canais
             new_imgs = None
             for gen_ch in generated_channels:
 
@@ -212,37 +235,16 @@ def preprocess(channels, generated_channels, img_w, force=True):
     if len(cyclone_new_channels.shape) < 4:
         cyclone_new_channels = np.expand_dims(cyclone_new_channels, axis=-1)
 
-
-    """
-    select only the cyclones to add a new channel
-    by eliminating the first two images of each cyclone
-    """
-    # single_cyclone_indexes = [i[2:] for _, i in single_cyclone_indexes]
-
-
     """
     load cyclones
     """
     print("\nLoading processed images\n")
-    # images = None
-    # labels = None
-    # for i, (id, cyc_idx) in enumerate(single_cyclone_indexes):
-    #     print(f"{i}/{len(single_cyclone_indexes)} - Loading from cyclone {id}")
-    #     cyc_idx = cyc_idx[2:]
-    #     imgs = data[cyc_idx]
-    #     lbls = info.iloc[cyc_idx]
-    #     if images is not None and labels is not None:
-    #         images = np.concatenate((images, imgs), axis=0)
-    #         labels = np.concatenate((labels, lbls), axis=0)
-    #     else:
-    #         images = imgs
-    #         labels = lbls
-
+    # Carrega as imagens originais (a partir da terceira de cada ciclone)
     images = ()
     labels = []
     for id, cyc_idx in single_cyclone_indexes:
         print(cyc_idx)
-        cyc_idx = cyc_idx[2:]
+        cyc_idx = cyc_idx[2:]  # Remove as duas primeiras imagens
         imgs = data[cyc_idx]
         lbls = info.iloc[cyc_idx]
         images += (imgs,)
@@ -257,22 +259,31 @@ def preprocess(channels, generated_channels, img_w, force=True):
 
     print(f"\nData shape: {images.shape}")
 
+    # Concatena os canais originais com os novos canais gerados
     images = np.concatenate((images, cyclone_new_channels), axis=-1)
     print(f"Data shape: {images.shape}")
 
+    # Divide em treino, validação e teste
     train, valid, test = split_data(images, labels)
     return train, valid, test
 
 
 def save_preprocessed(channels=[0, 3], generated_channels=[0], img_w=64, data=None):
+    # Salva os dados pré-processados em arquivos HDF5
+    # channels: canais originais
+    # generated_channels: canais gerados
+    # img_w: largura da imagem
+    # data: dados pré-processados (opcional)
 
     if not data:
+        # Se não fornecido, pré-processa os dados
         (
             (train_imgs, train_labels),
             (valid_imgs, valid_labels),
             (test_imgs, test_labels),
         ) = preprocess(channels, generated_channels, img_w, force=True)
     else:
+        # Usa os dados fornecidos
         (
             (train_imgs, train_labels),
             (valid_imgs, valid_labels),
@@ -291,6 +302,7 @@ def save_preprocessed(channels=[0, 3], generated_channels=[0], img_w=64, data=No
     print(f"Images shape: {test_imgs.shape}")
     print(f"Info shape: {test_labels.shape}\n")
 
+    # Define as formas para os datasets HDF5
     img_new_shape = train_imgs.shape[1:]
     labels_new_shape = train_labels.shape[1:]
 
@@ -305,6 +317,7 @@ def save_preprocessed(channels=[0, 3], generated_channels=[0], img_w=64, data=No
     print("Writing traininig file...")
     print(train_imgs.shape)
     print(train_labels.shape)
+    # Salva o conjunto de treino
     with h5py.File(preprocessed_train, mode="w") as train:
 
         if "matrix" not in train:
@@ -318,6 +331,7 @@ def save_preprocessed(channels=[0, 3], generated_channels=[0], img_w=64, data=No
     print("Writing validation file...")
     print(valid_imgs.shape)
     print(valid_labels.shape)
+    # Salva o conjunto de validação
     with h5py.File(preprocessed_valid, mode="w") as valid:
 
         if "matrix" not in valid:
@@ -330,6 +344,7 @@ def save_preprocessed(channels=[0, 3], generated_channels=[0], img_w=64, data=No
     print("Writing test file...")
     print(test_imgs.shape)
     print(test_labels.shape)
+    # Salva o conjunto de teste
     with h5py.File(preprocessed_test, mode="w") as test:
 
         if "matrix" not in test:
@@ -341,6 +356,7 @@ def save_preprocessed(channels=[0, 3], generated_channels=[0], img_w=64, data=No
 
 
 def main():
+    # Função principal para executar o pré-processamento e salvamento
     save_preprocessed()
 
 
