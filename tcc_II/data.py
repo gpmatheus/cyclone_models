@@ -1,7 +1,6 @@
 import dask.array as da
 import numpy as np
 import h5py
-import tensorflow as tf
 import pandas as pd
 import datetime
 import os
@@ -131,18 +130,22 @@ def preprocess(channels, generated_channels, img_w, force=True):
             # Carrega os dados pré-processados se já existirem
             with h5py.File(preprocessed_train, mode="r") as train:
                 train_imgs = train["matrix"][:]
-                train_labels = train["info"][:]
-                train = (train_imgs, train_labels)
+            
+            train_labels = pd.read_hdf(preprocessed_train, key="info", mode="r")
+            train = (train_imgs, train_labels)
+            
 
             with h5py.File(preprocessed_valid, mode="r") as valid:
                 valid_imgs = valid["matrix"][:]
-                valid_labels = valid["info"][:]
-                valid = (valid_imgs, valid_labels)
+            
+            valid_labels = pd.read_hdf(preprocessed_valid, key="info", mode="r")
+            valid = (valid_imgs, valid_labels)
 
             with h5py.File(preprocessed_test, mode="r") as test:
                 test_imgs = test["matrix"][:]
-                test_labels = test["info"][:]
-                test = (test_imgs, test_labels)
+            
+            test_labels = pd.read_hdf(preprocessed_test, key="info", mode="r")
+            test = (test_imgs, test_labels)
 
             print(f"\nTrain images shape: {train_imgs.shape}")
             print(f"Train labels shape: {train_labels.shape}")

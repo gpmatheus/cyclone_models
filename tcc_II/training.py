@@ -1,9 +1,13 @@
 import tensorflow as tf
 import numpy as np
-import data
 from pathlib import Path
 
 keras = tf.keras
+
+try:
+    from . import data
+except ImportError:
+    import data
 
 
 def parse_example(image, label):
@@ -50,7 +54,7 @@ def build_dataset(data, batch):
     imgs, labels = data
 
     imgs = imgs.astype("float32")
-    labels = labels.astype("float32")
+    # labels = labels.astype("float32")
 
     dataset = tf.data.Dataset.from_tensor_slices((imgs, labels))
     dataset = dataset.repeat()
