@@ -181,7 +181,6 @@ def preprocess(channels, generated_channels, img_w, force=True):
 
         sorted_idx = sub_info.index
 
-        print(f"{len(sorted_idx)} found.")
         single_cyclone_indexes.append((id, sorted_idx))
 
     """
