@@ -191,7 +191,7 @@ def train_model(
 
 def save_model(model, path):
 
-    model.save(path)
+    model.export(path)
 
 
 def main(
