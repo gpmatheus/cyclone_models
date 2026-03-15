@@ -175,8 +175,6 @@ def preprocess(channels, generated_channels, img_w, force=True):
     print("Filling ids...")
     # Preenche a lista com índices ordenados por tempo para cada ciclone
     for id in ids:
-
-        print(f"\nFinding images of: {id}")
         sub_info = info[info["ID"] == id]
         
         sub_info = sub_info.sort_values("time")
@@ -207,7 +205,6 @@ def preprocess(channels, generated_channels, img_w, force=True):
         # add sorted labels to sorted_labels list
         # labels = labels[2:]
 
-        print(f"Generating channels for cyclone {id} of {len(indexes)} images", end="")
         sum = 0
         for idx in range(2, len(indexes)):
             # Para cada imagem a partir da terceira, calcula novos canais
@@ -226,7 +223,6 @@ def preprocess(channels, generated_channels, img_w, force=True):
 
             cyclone_new_channels.append(new_imgs)
             sum += 1
-        print(f" - {len(indexes)} -> {sum}")
         inittotal += len(indexes)
         endtotal += sum
     
