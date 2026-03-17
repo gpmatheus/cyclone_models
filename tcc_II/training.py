@@ -1,6 +1,7 @@
 import tensorflow as tf
 import numpy as np
 from pathlib import Path
+import pickle
 
 keras = tf.keras
 
@@ -178,7 +179,7 @@ def train_model(
     valid_ds, valid_shape = valid_ds
 
     with tf.device("/GPU:0"):
-        model.fit(
+        history = model.fit(
             train_ds,
             validation_data=valid_ds,
             epochs=epochs,
@@ -186,12 +187,19 @@ def train_model(
             validation_steps=valid_shape[0] // batch,
         )
 
-    return model
+    return model, history
 
 
 def save_model(model, path):
 
-    model.export(path)
+    model.export(Path(path))
+    model.save(f"{path}.keras")
+    with open(f"{path}.pkl", "wb") as file:
+        pickle.dump(model, file)
+
+def save_history(history, path):
+    with open(path, "wb") as file:
+        pickle.dump(history.history, file)
 
 
 def main(
@@ -209,8 +217,11 @@ def main(
         (img_w, img_w, len(channels) + len(generated_channels)), learning_rate
     )
     model.summary()
-    model = train_model(model, train_ds, valid_ds, epochs, batch)
-    save_model(model, Path("model"))
+    model, history = train_model(model, train_ds, valid_ds, epochs, batch)
+
+    path = "model"
+    save_model(model, path)
+    save_history(history, path)
 
 
 if __name__ == "__main__":
