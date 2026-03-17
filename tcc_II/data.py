@@ -345,9 +345,7 @@ def preprocess(channels, generated_channels, img_w, force=True):
     train_images = ()
     train_labels = []
     for id, cyc_idx in train_single_cyclone_indexes:
-        print(f"{len(cyc_idx)} ", end="")
         cyc_idx = cyc_idx[2:]  # Remove as duas primeiras imagens
-        print(len(cyc_idx))
         imgs = trainds[cyc_idx]
         lbls = traininfo.iloc[cyc_idx]
         train_images += (imgs,)
@@ -358,9 +356,7 @@ def preprocess(channels, generated_channels, img_w, force=True):
     valid_images = ()
     valid_labels = []
     for id, cyc_idx in valid_single_cyclone_indexes:
-        print(f"{len(cyc_idx)} ", end="")
         cyc_idx = cyc_idx[2:]  # Remove as duas primeiras imagens
-        print(len(cyc_idx))
         imgs = validds[cyc_idx]
         lbls = validinfo.iloc[cyc_idx]
         valid_images += (imgs,)
@@ -371,9 +367,7 @@ def preprocess(channels, generated_channels, img_w, force=True):
     test_images = ()
     test_labels = []
     for id, cyc_idx in test_single_cyclone_indexes:
-        print(f"{len(cyc_idx)} ", end="")
         cyc_idx = cyc_idx[2:]  # Remove as duas primeiras imagens
-        print(len(cyc_idx))
         imgs = testds[cyc_idx]
         lbls = testinfo.iloc[cyc_idx]
         test_images += (imgs,)
