@@ -2,6 +2,7 @@ import tensorflow as tf
 import numpy as np
 from pathlib import Path
 import pickle
+import os
 
 keras = tf.keras
 
@@ -9,6 +10,8 @@ try:
     from . import data
 except ImportError:
     import data
+
+result_path_folder = os.getenv("RESULT_PATH") or ""
 
 
 def parse_example(image, label):
@@ -192,13 +195,14 @@ def train_model(
 
 def save_model(model, path):
 
-    model.export(Path(path))
-    model.save(f"{path}.keras")
-    with open(f"{path}.pkl", "wb") as file:
+    model.export(Path(f"{path}/model"))
+    model.save(f"{path}/model.keras")
+
+    with open(f"{path}/model.pkl", "wb") as file:
         pickle.dump(model, file)
 
 def save_history(history, path):
-    with open(path, "wb") as file:
+    with open(f"{path}/history.pkl", "wb") as file:
         pickle.dump(history.history, file)
 
 
@@ -219,9 +223,8 @@ def main(
     model.summary()
     model, history = train_model(model, train_ds, valid_ds, epochs, batch)
 
-    path = "model"
-    save_model(model, path)
-    save_history(history, path)
+    save_model(model, result_path_folder)
+    save_history(history, result_path_folder)
 
 
 if __name__ == "__main__":
