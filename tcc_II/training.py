@@ -3,6 +3,7 @@ import numpy as np
 from pathlib import Path
 import pickle
 import os
+import random
 
 keras = tf.keras
 
@@ -12,6 +13,8 @@ except ImportError:
     import data
 
 result_path_folder = os.getenv("RESULT_PATH") or ""
+
+is_remote = os.environ.get("KAGGLE_URL_BASE") is not None
 
 
 def parse_example(image, label):
@@ -54,11 +57,24 @@ def preprocess_image_tf(image):
     return tf.image.resize_with_crop_or_pad(rotated, 64, 64)
 
 
-def build_dataset(data, batch):
+def build_dataset(data, batch, sample_pct=1.0):
     imgs, labels = data
 
     imgs = imgs.astype("float32")
     labels = labels["Vmax"].astype("float32")
+
+    images_len = imgs.shape[0]
+    print(f"Dataset len: {images_len}")
+
+    images_sample_len = int(images_len * sample_pct)
+    print(f"Dataset new len: {images_sample_len}")
+
+    idx = list(range(images_len))
+    random.shuffle(idx)
+    idx = idx[:images_sample_len]
+
+    imgs = imgs[idx]
+    labels = labels.iloc[idx].reset_index(drop=True)
 
     dataset = tf.data.Dataset.from_tensor_slices((imgs, labels))
     dataset = dataset.repeat()
@@ -73,7 +89,11 @@ def build_dataset(data, batch):
 def load_datasets(channels, generated_channels, img_w, batch):
     train, valid, _ = data.preprocess(channels, generated_channels, img_w, force=False)
 
-    train_ds, valid_ds = build_dataset(train, batch), build_dataset(valid, batch)
+    percentage = 1.0 if is_remote else .2
+    print(f"Dataset sample of {percentage * 100}%")
+
+    train_ds = build_dataset(train, batch, sample_pct=percentage)
+    valid_ds = build_dataset(valid, batch)
     return train_ds, valid_ds
 
 
