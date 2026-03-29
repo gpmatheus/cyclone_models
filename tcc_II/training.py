@@ -185,7 +185,9 @@ def build_model(input_shape, lr, strides=(2, 2)):
     )
 
     model.compile(
-        optimizer=keras.optimizers.Adam(learning_rate=lr), loss="mse", metrics=["mse"]
+        optimizer=keras.optimizers.Adam(learning_rate=lr), 
+        loss="mse", 
+        metrics=["mse", "mae", keras.metrics.RootMeanSquaredError()],
     )
     return model
 
