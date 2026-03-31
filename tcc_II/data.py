@@ -182,34 +182,36 @@ def load_normalized_data(
     data, info = load_data()
     trainds, traininfo = get_train_data(data, info)
 
+    rotation_width = calculate_img_ration_w(img_w)
+    trainds = cut_images(trainds, rotation_width)
+
     print(f"Removing nan values and values larger than 1000 from train dataset")
-    trainds = da.nan_to_num(trainds)
-    trainds[trainds > 1000] = 0
+    trainds = clear_images(trainds)
 
     print("Calculating means...")
-    means = [da.nanmean(trainds[:, :, :, i]).compute() for i in channels]
-
+    means = [da.mean(trainds[:, :, :, i]).compute() for i in channels]
     print(f"Means values: {means}")
 
     print("Calcularing standard deviations...")
     std = [da.std(trainds[:, :, :, i]).compute() for i in channels]
-
     print(f"Standard deviation values: {std}")
-
-    rotation_width = calculate_img_ration_w(img_w)
 
     validds, validinfo = get_valid_data(data, info)
     testds, testinfo = get_test_data(data, info)
 
-    trainds = cut_images(trainds, rotation_width)
     validds = cut_images(validds, rotation_width)
     testds = cut_images(testds, rotation_width)
 
-    validds = da.nan_to_num(validds)
-    validds[validds > 1000] = 0
+    validds = clear_images(validds)
+    testds = clear_images(testds)
 
-    testds = da.nan_to_num(testds)
-    testds[testds > 1000] = 0
+    trainds = trainds.compute()
+    validds = validds.compute()
+    testds = testds.compute()
+
+    trainds = trainds[:, :, :, channels]
+    validds = validds[:, :, :, channels]
+    testds = testds[:, :, :, channels]
 
     print("Normalizing images...")
     for chan in range(len(channels)):
@@ -222,9 +224,6 @@ def load_normalized_data(
         testds[:, :, :, chan] -= means[chan]
         testds[:, :, :, chan] /= std[chan]
 
-    trainds = np.array(trainds[:, :, :, channels])
-    validds = np.array(validds[:, :, :, channels])
-    testds = np.array(testds[:, :, :, channels])
     return (trainds, traininfo), (validds, validinfo), (testds, testinfo)
 
 
