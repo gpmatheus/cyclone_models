@@ -27,6 +27,17 @@ def cut_images(images, width):
     slc = get_images_slice(images.shape, width)
     return images[:, slc, slc, :]
 
+def calculate_img_ration_w(img_w):
+    rotation_width = int(np.ceil(np.sqrt((img_w**2) * 2)))
+    if rotation_width % 2 != 0:
+        rotation_width += 1
+    return rotation_width
+
+def clear_images(images):
+    images = da.nan_to_num(images)
+    images[images > 1000] = 0
+    return images
+
 def get_train_data(images: da.Array | np.ndarray, info: pd.DataFrame) -> Tuple[da.Array, pd.DataFrame]:
     # Ciclones de 2003-2014
     years = [datetime.datetime.strptime(i, "%Y%m%d%H").year for i in list(info["time"])]
@@ -121,10 +132,64 @@ def create_new_channels(
 
     return cyclone_new_channels
 
+def load_data():
+    dsfiles = ["TCIR-ATLN_EPAC_WPAC.h5", "TCIR-ALL_2017.h5", "TCIR-CPAC_IO_SH.h5"]
+    dspaths = [f"{data_path}/{file}" for file in dsfiles]
+    files = [h5py.File(file, mode="r") for file in dspaths]
+    data = [da.from_array(file["matrix"]) for file in files]
+    info = [pd.read_hdf(file, key="info", mode="r") for file in dspaths]
+
+    data = da.concatenate(data, axis=0) # Lazy loaded
+    info = pd.concat(info).reset_index(drop=True)
+
+    # Fecha os arquivos HDF5
+    # for file in files:
+    #     file.close()
+    return data, info
+
+
+
+def load_indnormalized_data(
+    channels: List[int], 
+    img_w: int,
+) -> Tuple[
+    Tuple[np.ndarray, pd.DataFrame], 
+    Tuple[np.ndarray, pd.DataFrame], 
+    Tuple[np.ndarray, pd.DataFrame]
+]:
+    print("Loading data...")
+
+    data, info = load_data()
+    data = data[:, :, :, channels]
+    rotation_width = calculate_img_ration_w(img_w)
+    data = cut_images(data, rotation_width)
+    data = clear_images(data)
+    data = data.compute()
+
+    # normalize data
+    print("Normalizing...")
+    for ch in range(len(channels)):
+        for i in range(data.shape[0]):
+            mean = np.mean(data[i, :, :, ch])
+            std = np.std(data[i, :, :, ch])
+            data[i, :, :, ch] -= mean
+            if std > 0.0:
+                data[i, :, :, ch] /= std
+
+
+    train_images, train_info = get_train_data(data, info)
+    valid_images, valid_info = get_valid_data(data, info)
+    test_images, test_info = get_test_data(data, info)
+
+    return (train_images, train_info), (valid_images, valid_info), (test_images, test_info)
+
+
+
+
 
 def load_normalized_data(
     channels: List[int], 
-    img_w: int
+    img_w: int,
 ) -> Tuple[
     Tuple[np.ndarray, pd.DataFrame], 
     Tuple[np.ndarray, pd.DataFrame], 
@@ -135,16 +200,7 @@ def load_normalized_data(
     # img_w: largura da imagem final
     print("Loading data...")
 
-
-    dsfiles = ["TCIR-ATLN_EPAC_WPAC.h5", "TCIR-ALL_2017.h5", "TCIR-CPAC_IO_SH.h5"]
-    dspaths = [f"{data_path}/{file}" for file in dsfiles]
-    files = [h5py.File(file, mode="r") for file in dspaths]
-    data = [da.from_array(file["matrix"]) for file in files]
-    info = [pd.read_hdf(file, key="info", mode="r") for file in dspaths]
-
-    data = da.concatenate(data, axis=0) # Lazy loaded
-    info = pd.concat(info).reset_index(drop=True)
-
+    data, info = load_data()
 
     # carrega dataset de treinamento de modo Lazy
     trainds, traininfo = get_train_data(data, info)
@@ -166,9 +222,7 @@ def load_normalized_data(
     print(f"Standard deviation values: {std}")
 
     # Calcula a largura para rotação (diagonal da imagem quadrada)
-    rotation_width = int(np.ceil(np.sqrt((img_w**2) * 2)))
-    if rotation_width % 2 != 0:
-        rotation_width += 1
+    rotation_width = calculate_img_ration_w(img_w)
 
     # carrega datasets de validação e teste de modo Lazy
     validds, validinfo = get_valid_data(data, info)
@@ -203,10 +257,6 @@ def load_normalized_data(
     trainds = np.array(trainds[:, :, :, channels])
     validds = np.array(validds[:, :, :, channels])
     testds = np.array(testds[:, :, :, channels])
-
-    # Fecha os arquivos HDF5
-    for file in files:
-        file.close()
     
     assert isinstance(trainds, np.ndarray)
     assert isinstance(traininfo, pd.DataFrame)
