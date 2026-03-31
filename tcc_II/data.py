@@ -6,8 +6,6 @@ import datetime
 import os
 from typing import Tuple, List
 
-# Definição dos caminhos para os dados
-# Usa variáveis de ambiente se definidas, senão usa caminhos padrão
 data_path = os.getenv("DATA_PATH") or "data"
 preprocessed_path = os.getenv("PREPROCESSED_PATH") or "data/preprocessed"
 print(f"folder_path: {preprocessed_path}")
@@ -46,9 +44,6 @@ def get_train_data(images: da.Array | np.ndarray, info: pd.DataFrame) -> Tuple[d
     train_idx = np.where(train_values)[0]
     train_img, train_info = images[train_idx], info.iloc[train_idx]
     train_info = train_info.reset_index(drop=True)
-
-    assert isinstance(train_img, da.Array) or isinstance(train_img, np.ndarray)
-    assert isinstance(train_info, pd.DataFrame)
     return train_img, train_info
 
 def get_valid_data(images: da.Array | np.ndarray, info: pd.DataFrame) -> Tuple[da.Array, pd.DataFrame]:
@@ -59,9 +54,6 @@ def get_valid_data(images: da.Array | np.ndarray, info: pd.DataFrame) -> Tuple[d
     valid_idx = np.where(valid_values)[0]
     valid_img, valid_info = images[valid_idx], info.iloc[valid_idx]
     valid_info = valid_info.reset_index(drop=True)
-
-    assert isinstance(valid_img, da.Array) or isinstance(valid_img, np.ndarray)
-    assert isinstance(valid_info, pd.DataFrame)
     return valid_img, valid_info
 
 def get_test_data(images: da.Array | np.ndarray, info: pd.DataFrame) -> Tuple[da.Array, pd.DataFrame]:
@@ -72,9 +64,6 @@ def get_test_data(images: da.Array | np.ndarray, info: pd.DataFrame) -> Tuple[da
     test_idx = np.where(test_values)[0]
     test_img, test_info = images[test_idx], info.iloc[test_idx]
     test_info = test_info.reset_index(drop=True)
-
-    assert isinstance(test_img, da.Array) or isinstance(test_img, np.ndarray)
-    assert isinstance(test_info, pd.DataFrame)
     return test_img, test_info
 
 def split_data(images, info):
@@ -141,10 +130,6 @@ def load_data():
 
     data = da.concatenate(data, axis=0) # Lazy loaded
     info = pd.concat(info).reset_index(drop=True)
-
-    # Fecha os arquivos HDF5
-    # for file in files:
-    #     file.close()
     return data, info
 
 
@@ -184,9 +169,6 @@ def load_indnormalized_data(
     return (train_images, train_info), (valid_images, valid_info), (test_images, test_info)
 
 
-
-
-
 def load_normalized_data(
     channels: List[int], 
     img_w: int,
@@ -195,22 +177,15 @@ def load_normalized_data(
     Tuple[np.ndarray, pd.DataFrame], 
     Tuple[np.ndarray, pd.DataFrame]
 ]:
-    # Carrega e normaliza os dados de imagens de ciclones
-    # channels: lista de canais a serem usados
-    # img_w: largura da imagem final
     print("Loading data...")
 
     data, info = load_data()
-
-    # carrega dataset de treinamento de modo Lazy
     trainds, traininfo = get_train_data(data, info)
 
-    # remove valores nan e valores maiores que 1000 do dataset de treinamento
     print(f"Removing nan values and values larger than 1000 from train dataset")
     trainds = da.nan_to_num(trainds)
     trainds[trainds > 1000] = 0
 
-    # calcula média dos canais no dataset de treinamento
     print("Calculating means...")
     means = [da.nanmean(trainds[:, :, :, i]).compute() for i in channels]
 
@@ -221,27 +196,21 @@ def load_normalized_data(
 
     print(f"Standard deviation values: {std}")
 
-    # Calcula a largura para rotação (diagonal da imagem quadrada)
     rotation_width = calculate_img_ration_w(img_w)
 
-    # carrega datasets de validação e teste de modo Lazy
     validds, validinfo = get_valid_data(data, info)
     testds, testinfo = get_test_data(data, info)
 
-    # corta todas as imagens de todos os datasets
     trainds = cut_images(trainds, rotation_width)
     validds = cut_images(validds, rotation_width)
     testds = cut_images(testds, rotation_width)
 
-    # remove valores nan e valores maiores que 1000 dos datasets de 
-    # validação e test. (no de treinamento já foi feito isso)
     validds = da.nan_to_num(validds)
     validds[validds > 1000] = 0
 
     testds = da.nan_to_num(testds)
     testds[testds > 1000] = 0
 
-    # Normaliza cada canal subtraindo a média e dividindo pelo desvio padrão
     print("Normalizing images...")
     for chan in range(len(channels)):
         trainds[:, :, :, chan] -= means[chan]
@@ -253,26 +222,13 @@ def load_normalized_data(
         testds[:, :, :, chan] -= means[chan]
         testds[:, :, :, chan] /= std[chan]
 
-    # Seleciona apenas os canais especificados
     trainds = np.array(trainds[:, :, :, channels])
     validds = np.array(validds[:, :, :, channels])
     testds = np.array(testds[:, :, :, channels])
-    
-    assert isinstance(trainds, np.ndarray)
-    assert isinstance(traininfo, pd.DataFrame)
-    assert isinstance(validds, np.ndarray)
-    assert isinstance(validinfo, pd.DataFrame)
-    assert isinstance(testds, np.ndarray)
-    assert isinstance(testinfo, pd.DataFrame)
     return (trainds, traininfo), (validds, validinfo), (testds, testinfo)
 
 
 def preprocess(channels, generated_channels, img_w, force=True):
-    # Pré-processa os dados, gerando novos canais e dividindo em treino/validação/teste
-    # channels: canais originais a usar
-    # generated_channels: canais para gerar novos (diferença absoluta)
-    # img_w: largura da imagem
-    # force: força o pré-processamento mesmo se arquivos existirem
 
     if not force:
         print("Checking if files exist")
@@ -280,7 +236,6 @@ def preprocess(channels, generated_channels, img_w, force=True):
 
         if exists:
             print("Files exist. Loading files...")
-            # Carrega os dados pré-processados se já existirem
             with h5py.File(preprocessed_train, mode="r") as train:
                 train_imgs = train["matrix"][:]
             
@@ -322,45 +277,29 @@ def preprocess(channels, generated_channels, img_w, force=True):
     print("Preprocessing data...")
     ids = pd.concat([traininfo, validinfo, testinfo])["ID"].unique()
 
-    """
-    CREATE NEW CHANNELS
-    single_cyclone_indexes is a list of lists that contains
-    the indexes for each image of a single cyclone
-    """
-    # Lista para armazenar índices de imagens de cada ciclone
     train_single_cyclone_indexes = []
     valid_single_cyclone_indexes = []
     test_single_cyclone_indexes = []
 
-    """
-    fills the single_cyclone_indexes with the sorted indexes of cyclones
-    """
     print("Filling ids...")
-    # Preenche a lista com índices ordenados por tempo para cada ciclone
     for id in ids:
 
-        # para o dataset de treinamento
         train_sub_info = traininfo[traininfo["ID"] == id]
         train_sub_info = train_sub_info.sort_values("time")
         train_sorted_idx = train_sub_info.index
         train_single_cyclone_indexes.append((id, train_sorted_idx))
 
-        # para o dataset de validação
         valid_sub_info = validinfo[validinfo["ID"] == id]
         valid_sub_info = valid_sub_info.sort_values("time")
         valid_sorted_idx = valid_sub_info.index
         valid_single_cyclone_indexes.append((id, valid_sorted_idx))
 
-        # para o dataset de teste
         test_sub_info = testinfo[testinfo["ID"] == id]
         test_sub_info = test_sub_info.sort_values("time")
         test_sorted_idx = test_sub_info.index
         test_single_cyclone_indexes.append((id, test_sorted_idx))
 
 
-    """
-    create all new channels
-    """
     print("Creating new channels...")
     trainds_new_channels = create_new_channels(
         train_single_cyclone_indexes, 
@@ -383,14 +322,7 @@ def preprocess(channels, generated_channels, img_w, force=True):
         generated_channels=generated_channels,
     )
 
-    """
-    load cyclones
-    """
-
-    # Carrega as imagens originais (a partir da terceira de cada ciclone)
     print("\nLoading processed images\n")
-
-    # Carrega imagens do dataset de treinamento
 
     train_images = ()
     train_labels = []
@@ -401,8 +333,6 @@ def preprocess(channels, generated_channels, img_w, force=True):
         train_images += (imgs,)
         train_labels.append(lbls)
     
-    # Carrega imagens do dataset de validação
-    
     valid_images = ()
     valid_labels = []
     for id, cyc_idx in valid_single_cyclone_indexes:
@@ -411,8 +341,6 @@ def preprocess(channels, generated_channels, img_w, force=True):
         lbls = validinfo.iloc[cyc_idx]
         valid_images += (imgs,)
         valid_labels.append(lbls)
-    
-    # Carrega imagens do dataset de teste
 
     test_images = ()
     test_labels = []
@@ -422,8 +350,6 @@ def preprocess(channels, generated_channels, img_w, force=True):
         lbls = testinfo.iloc[cyc_idx]
         test_images += (imgs,)
         test_labels.append(lbls)
-    
-    # Concatenando images geradas de cada dataset
 
     # Dataset de treinamento
     print("Concatenating train dataset images...")
@@ -439,6 +365,7 @@ def preprocess(channels, generated_channels, img_w, force=True):
     train_images = np.concatenate((train_images, trainds_new_channels), axis=-1)
     print(f"Train dataset new shape: {train_images.shape}\n")
 
+
     # Dataset de validação
     print("Concatenating validation dataset images...")
     valid_images = np.concatenate(valid_images, axis=0)
@@ -452,6 +379,7 @@ def preprocess(channels, generated_channels, img_w, force=True):
     # Concatena os canais originais do dataset de validação com os novos canais gerados
     valid_images = np.concatenate((valid_images, validds_new_channels), axis=-1)
     print(f"Validation dataset new shape: {valid_images.shape}\n")
+
 
     # Dataset de teste
     print("Concatenating test dataset images...")
@@ -476,11 +404,6 @@ def preprocess(channels, generated_channels, img_w, force=True):
 
 
 def save_preprocessed(channels=[0, 3], generated_channels=[0], img_w=64, data=None):
-    # Salva os dados pré-processados em arquivos HDF5
-    # channels: canais originais
-    # generated_channels: canais gerados
-    # img_w: largura da imagem
-    # data: dados pré-processados (opcional)
 
     if not data:
         # Se não fornecido, pré-processa os dados
