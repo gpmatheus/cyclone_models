@@ -121,6 +121,136 @@ def create_new_channels(
 
     return cyclone_new_channels
 
+def add_channels(generated_channels, data):
+
+    (trainds, traininfo), (validds, validinfo), (testds, testinfo) = data
+    
+    ids = pd.concat([traininfo, validinfo, testinfo])["ID"].unique()
+
+    train_single_cyclone_indexes = []
+    valid_single_cyclone_indexes = []
+    test_single_cyclone_indexes = []
+
+    print("Filling ids...")
+    for id in ids:
+
+        train_sub_info = traininfo[traininfo["ID"] == id]
+        train_sub_info = train_sub_info.sort_values("time")
+        train_sorted_idx = train_sub_info.index
+        train_single_cyclone_indexes.append((id, train_sorted_idx))
+
+        valid_sub_info = validinfo[validinfo["ID"] == id]
+        valid_sub_info = valid_sub_info.sort_values("time")
+        valid_sorted_idx = valid_sub_info.index
+        valid_single_cyclone_indexes.append((id, valid_sorted_idx))
+
+        test_sub_info = testinfo[testinfo["ID"] == id]
+        test_sub_info = test_sub_info.sort_values("time")
+        test_sorted_idx = test_sub_info.index
+        test_single_cyclone_indexes.append((id, test_sorted_idx))
+    
+    print("Creating new channels...")
+    trainds_new_channels = create_new_channels(
+        train_single_cyclone_indexes, 
+        trainds, 
+        traininfo, 
+        generated_channels=generated_channels,
+    )
+
+    validds_new_channels = create_new_channels(
+        valid_single_cyclone_indexes, 
+        validds, 
+        validinfo, 
+        generated_channels=generated_channels,
+    )
+
+    testds_new_channels = create_new_channels(
+        test_single_cyclone_indexes, 
+        testds, 
+        testinfo, 
+        generated_channels=generated_channels,
+    )
+
+    print("\nLoading processed images\n")
+
+    train_images = ()
+    train_labels = []
+    for id, cyc_idx in train_single_cyclone_indexes:
+        cyc_idx = cyc_idx[2:]  # Remove as duas primeiras imagens
+        imgs = trainds[cyc_idx]
+        lbls = traininfo.iloc[cyc_idx]
+        train_images += (imgs,)
+        train_labels.append(lbls)
+    
+    valid_images = ()
+    valid_labels = []
+    for id, cyc_idx in valid_single_cyclone_indexes:
+        cyc_idx = cyc_idx[2:]  # Remove as duas primeiras imagens
+        imgs = validds[cyc_idx]
+        lbls = validinfo.iloc[cyc_idx]
+        valid_images += (imgs,)
+        valid_labels.append(lbls)
+
+    test_images = ()
+    test_labels = []
+    for id, cyc_idx in test_single_cyclone_indexes:
+        cyc_idx = cyc_idx[2:]  # Remove as duas primeiras imagens
+        imgs = testds[cyc_idx]
+        lbls = testinfo.iloc[cyc_idx]
+        test_images += (imgs,)
+        test_labels.append(lbls)
+
+    # Dataset de treinamento
+    print("Concatenating train dataset images...")
+    train_images = np.concatenate(train_images, axis=0)
+
+    print("Concatenating train dataset labels...")
+    train_labels = pd.concat(train_labels, axis=0)
+    train_labels = train_labels.reset_index(drop=True)
+
+    print(f"Train dataset shape: {train_images.shape}")
+
+    # Concatena os canais originais do dataset de treino com os novos canais gerados
+    train_images = np.concatenate((train_images, trainds_new_channels), axis=-1)
+    print(f"Train dataset new shape: {train_images.shape}\n")
+
+
+    # Dataset de validação
+    print("Concatenating validation dataset images...")
+    valid_images = np.concatenate(valid_images, axis=0)
+
+    print("Concatenating valid dataset labels...")
+    valid_labels = pd.concat(valid_labels, axis=0)
+    valid_labels = valid_labels.reset_index(drop=True)
+
+    print(f"Validation dataset shape: {valid_images.shape}")
+
+    # Concatena os canais originais do dataset de validação com os novos canais gerados
+    valid_images = np.concatenate((valid_images, validds_new_channels), axis=-1)
+    print(f"Validation dataset new shape: {valid_images.shape}\n")
+
+
+    # Dataset de teste
+    print("Concatenating test dataset images...")
+    test_images = np.concatenate(test_images, axis=0)
+
+    print("Concatenating test dataset labels...")
+    test_labels = pd.concat(test_labels, axis=0)
+    test_labels = test_labels.reset_index(drop=True)
+
+    print(f"Test dataset shape: {test_images.shape}")
+
+    # Concatena os canais originais do dataset de teste com os novos canais gerados
+    test_images = np.concatenate((test_images, testds_new_channels), axis=-1)
+    print(f"Test dataset new shape: {test_images.shape}\n")
+
+    ds = (
+        (train_images, train_labels),
+        (valid_images, valid_labels),
+        (test_images, test_labels)
+    )
+    return ds
+
 def load_data():
     dsfiles = ["TCIR-ATLN_EPAC_WPAC.h5", "TCIR-ALL_2017.h5", "TCIR-CPAC_IO_SH.h5"]
     dspaths = [f"{data_path}/{file}" for file in dsfiles]
@@ -262,9 +392,8 @@ def preprocess(channels, generated_channels, img_w, force=True):
             print(f"Test labels shape: {test_labels.shape}")
             return train, valid, test
 
-    (trainds, traininfo), \
-    (validds, validinfo), \
-    (testds, testinfo) = load_normalized_data(channels, img_w)
+    normalized_data = load_normalized_data(channels, img_w)
+    (trainds, traininfo), (validds, validinfo), (testds, testinfo) = normalized_data
 
     print(f"Train dataset shape: {trainds.shape}")
     print(f"Train info shape: {traininfo.shape}\n")
@@ -273,133 +402,9 @@ def preprocess(channels, generated_channels, img_w, force=True):
     print(f"Test dataset shape: {testds.shape}")
     print(f"Test info shape: {testinfo.shape}\n")
 
-    print("Preprocessing data...")
-    ids = pd.concat([traininfo, validinfo, testinfo])["ID"].unique()
+    prep = add_channels(generated_channels, normalized_data)
 
-    train_single_cyclone_indexes = []
-    valid_single_cyclone_indexes = []
-    test_single_cyclone_indexes = []
-
-    print("Filling ids...")
-    for id in ids:
-
-        train_sub_info = traininfo[traininfo["ID"] == id]
-        train_sub_info = train_sub_info.sort_values("time")
-        train_sorted_idx = train_sub_info.index
-        train_single_cyclone_indexes.append((id, train_sorted_idx))
-
-        valid_sub_info = validinfo[validinfo["ID"] == id]
-        valid_sub_info = valid_sub_info.sort_values("time")
-        valid_sorted_idx = valid_sub_info.index
-        valid_single_cyclone_indexes.append((id, valid_sorted_idx))
-
-        test_sub_info = testinfo[testinfo["ID"] == id]
-        test_sub_info = test_sub_info.sort_values("time")
-        test_sorted_idx = test_sub_info.index
-        test_single_cyclone_indexes.append((id, test_sorted_idx))
-
-
-    print("Creating new channels...")
-    trainds_new_channels = create_new_channels(
-        train_single_cyclone_indexes, 
-        trainds, 
-        traininfo, 
-        generated_channels=generated_channels,
-    )
-
-    validds_new_channels = create_new_channels(
-        valid_single_cyclone_indexes, 
-        validds, 
-        validinfo, 
-        generated_channels=generated_channels,
-    )
-
-    testds_new_channels = create_new_channels(
-        test_single_cyclone_indexes, 
-        testds, 
-        testinfo, 
-        generated_channels=generated_channels,
-    )
-
-    print("\nLoading processed images\n")
-
-    train_images = ()
-    train_labels = []
-    for id, cyc_idx in train_single_cyclone_indexes:
-        cyc_idx = cyc_idx[2:]  # Remove as duas primeiras imagens
-        imgs = trainds[cyc_idx]
-        lbls = traininfo.iloc[cyc_idx]
-        train_images += (imgs,)
-        train_labels.append(lbls)
-    
-    valid_images = ()
-    valid_labels = []
-    for id, cyc_idx in valid_single_cyclone_indexes:
-        cyc_idx = cyc_idx[2:]  # Remove as duas primeiras imagens
-        imgs = validds[cyc_idx]
-        lbls = validinfo.iloc[cyc_idx]
-        valid_images += (imgs,)
-        valid_labels.append(lbls)
-
-    test_images = ()
-    test_labels = []
-    for id, cyc_idx in test_single_cyclone_indexes:
-        cyc_idx = cyc_idx[2:]  # Remove as duas primeiras imagens
-        imgs = testds[cyc_idx]
-        lbls = testinfo.iloc[cyc_idx]
-        test_images += (imgs,)
-        test_labels.append(lbls)
-
-    # Dataset de treinamento
-    print("Concatenating train dataset images...")
-    train_images = np.concatenate(train_images, axis=0)
-
-    print("Concatenating train dataset labels...")
-    train_labels = pd.concat(train_labels, axis=0)
-    train_labels = train_labels.reset_index(drop=True)
-
-    print(f"Train dataset shape: {train_images.shape}")
-
-    # Concatena os canais originais do dataset de treino com os novos canais gerados
-    train_images = np.concatenate((train_images, trainds_new_channels), axis=-1)
-    print(f"Train dataset new shape: {train_images.shape}\n")
-
-
-    # Dataset de validação
-    print("Concatenating validation dataset images...")
-    valid_images = np.concatenate(valid_images, axis=0)
-
-    print("Concatenating valid dataset labels...")
-    valid_labels = pd.concat(valid_labels, axis=0)
-    valid_labels = valid_labels.reset_index(drop=True)
-
-    print(f"Validation dataset shape: {valid_images.shape}")
-
-    # Concatena os canais originais do dataset de validação com os novos canais gerados
-    valid_images = np.concatenate((valid_images, validds_new_channels), axis=-1)
-    print(f"Validation dataset new shape: {valid_images.shape}\n")
-
-
-    # Dataset de teste
-    print("Concatenating test dataset images...")
-    test_images = np.concatenate(test_images, axis=0)
-
-    print("Concatenating test dataset labels...")
-    test_labels = pd.concat(test_labels, axis=0)
-    test_labels = test_labels.reset_index(drop=True)
-
-    print(f"Test dataset shape: {test_images.shape}")
-
-    # Concatena os canais originais do dataset de teste com os novos canais gerados
-    test_images = np.concatenate((test_images, testds_new_channels), axis=-1)
-    print(f"Test dataset new shape: {test_images.shape}\n")
-
-    ds = (
-        (train_images, train_labels),
-        (valid_images, valid_labels),
-        (test_images, test_labels)
-    )
-    return ds
+    return prep
 
 
 def save_preprocessed(channels=[0, 3], generated_channels=[0], img_w=64, data=None):
@@ -436,7 +441,6 @@ def save_preprocessed(channels=[0, 3], generated_channels=[0], img_w=64, data=No
     labels_new_shape = train_labels.shape[1:]
 
     img_max_shape = (None,) + img_new_shape
-    labels_max_shape = (None,) + labels_new_shape
 
     img_new_shape = (0,) + img_new_shape
     labels_new_shape = (0,) + labels_new_shape
@@ -489,5 +493,3 @@ def main():
     save_preprocessed()
 
 
-if __name__ == "__main__":
-    main()
