@@ -493,3 +493,5 @@ def main():
     save_preprocessed()
 
 
+if __name__ == "__main__":
+    main()
