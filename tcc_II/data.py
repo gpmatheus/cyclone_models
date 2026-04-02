@@ -402,9 +402,9 @@ def preprocess(channels, generated_channels, img_w, force=True):
     print(f"Test dataset shape: {testds.shape}")
     print(f"Test info shape: {testinfo.shape}\n")
 
-    prep = add_channels(generated_channels, normalized_data)
+    normalized_data = add_channels(generated_channels, normalized_data)
 
-    return prep
+    return normalized_data
 
 
 def save_preprocessed(channels=[0, 3], generated_channels=[0], img_w=64, data=None):
