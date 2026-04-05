@@ -86,13 +86,9 @@ def build_dataset(data, batch, sample_pct=1.0):
     return dataset, imgs.shape
 
 
-def load_datasets(channels, generated_channels, img_w, batch):
+def load_datasets(channels, generated_channels, img_w, batch, sample_pct):
     train, valid, _ = data.preprocess(channels, generated_channels, img_w, force=False)
-
-    percentage = 1.0 if is_remote else .2
-    print(f"Dataset sample of {percentage * 100}%")
-
-    train_ds = build_dataset(train, batch, sample_pct=percentage)
+    train_ds = build_dataset(train, batch, sample_pct=sample_pct)
     valid_ds = build_dataset(valid, batch)
     return train_ds, valid_ds
 
@@ -242,9 +238,11 @@ def main(
     batch=8,
     learning_rate=5e-5,
     epochs=500,
+    sample_pct=1.0,
+    seed=1,
 ):
 
-    train_ds, valid_ds = load_datasets(channels, generated_channels, img_w, batch)
+    train_ds, valid_ds = load_datasets(channels, generated_channels, img_w, batch, sample_pct)
 
     model = build_model(
         (img_w, img_w, len(channels) + len(generated_channels)), learning_rate
