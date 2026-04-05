@@ -8,7 +8,7 @@ import random
 keras = tf.keras
 
 try:
-    from . import data
+    from .. import data
 except ImportError:
     import data
 
@@ -203,6 +203,12 @@ def train_model(
     train_ds, train_shape = train_ds
     valid_ds, valid_shape = valid_ds
 
+    early_stopping = keras.callbacks.EarlyStopping(
+        monitor="val_mse",
+        patience=10,
+        restore_best_weights=True,
+    )
+
     with tf.device("/GPU:0"):
         history = model.fit(
             train_ds,
@@ -210,6 +216,7 @@ def train_model(
             epochs=epochs,
             steps_per_epoch=train_shape[0] // batch,
             validation_steps=valid_shape[0] // batch,
+            callbacks=[early_stopping],
         )
 
     return model, history
