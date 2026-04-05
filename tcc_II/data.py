@@ -263,42 +263,6 @@ def load_data():
     return data, info
 
 
-
-def load_indnormalized_data(
-    channels: List[int], 
-    img_w: int,
-) -> Tuple[
-    Tuple[np.ndarray, pd.DataFrame], 
-    Tuple[np.ndarray, pd.DataFrame], 
-    Tuple[np.ndarray, pd.DataFrame]
-]:
-    print("Loading data...")
-
-    data, info = load_data()
-    data = data[:, :, :, channels]
-    rotation_width = calculate_img_ration_w(img_w)
-    data = cut_images(data, rotation_width)
-    data = clear_images(data)
-    data = data.compute()
-
-    # normalize data
-    print("Normalizing...")
-    for ch in range(len(channels)):
-        for i in range(data.shape[0]):
-            mean = np.mean(data[i, :, :, ch])
-            std = np.std(data[i, :, :, ch])
-            data[i, :, :, ch] -= mean
-            if std > 0.0:
-                data[i, :, :, ch] /= std
-
-
-    train_images, train_info = get_train_data(data, info)
-    valid_images, valid_info = get_valid_data(data, info)
-    test_images, test_info = get_test_data(data, info)
-
-    return (train_images, train_info), (valid_images, valid_info), (test_images, test_info)
-
-
 def load_normalized_data(
     channels: List[int], 
     img_w: int,
