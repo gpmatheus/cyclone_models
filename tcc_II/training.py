@@ -231,6 +231,14 @@ def save_history(history, path):
         pickle.dump(history.history, file)
 
 
+def set_seed(seed):
+    """Configure todas as seeds para reproducibilidade"""
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    random.seed(seed)
+    np.random.seed(seed)
+    tf.random.set_seed(seed)
+
+
 def main(
     channels=[0, 3],
     generated_channels=[0],
@@ -241,6 +249,7 @@ def main(
     sample_pct=1.0,
     seed=1,
 ):
+    set_seed(seed)
 
     train_ds, valid_ds = load_datasets(channels, generated_channels, img_w, batch, sample_pct)
 
@@ -255,4 +264,4 @@ def main(
 
 
 if __name__ == "__main__":
-    main()
+    main(sample_pct=.1)
