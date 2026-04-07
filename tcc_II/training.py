@@ -194,6 +194,7 @@ def train_model(
     valid_ds,
     epochs,
     batch,
+    patience,
 ):
 
     train_ds, train_shape = train_ds
@@ -201,7 +202,7 @@ def train_model(
 
     early_stopping = keras.callbacks.EarlyStopping(
         monitor="val_mse",
-        patience=10,
+        patience=patience,
         restore_best_weights=True,
     )
 
@@ -248,6 +249,7 @@ def main(
     epochs=500,
     sample_pct=1.0,
     seed=1,
+    patience=30,
 ):
     set_seed(seed)
 
@@ -257,11 +259,11 @@ def main(
         (img_w, img_w, len(channels) + len(generated_channels)), learning_rate
     )
     model.summary()
-    model, history = train_model(model, train_ds, valid_ds, epochs, batch)
+    model, history = train_model(model, train_ds, valid_ds, epochs, batch, patience)
 
     save_model(model, result_path_folder)
     save_history(history, result_path_folder)
 
 
 if __name__ == "__main__":
-    main(sample_pct=.1)
+    main(sample_pct=.1, seed=3)
