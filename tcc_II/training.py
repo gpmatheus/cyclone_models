@@ -57,7 +57,7 @@ def preprocess_image_tf(image):
     return tf.image.resize_with_crop_or_pad(rotated, 64, 64)
 
 
-def build_dataset(data, batch, sample_pct=1.0):
+def build_dataset(data, batch, seed, sample_pct=1.0):
     imgs, labels = data
 
     imgs = imgs.astype("float32")
@@ -78,18 +78,18 @@ def build_dataset(data, batch, sample_pct=1.0):
 
     dataset = tf.data.Dataset.from_tensor_slices((imgs, labels))
     dataset = dataset.repeat()
-    dataset = dataset.shuffle(buffer_size=len(imgs))
-    dataset = dataset.map(parse_example, num_parallel_calls=tf.data.AUTOTUNE)
+    dataset = dataset.shuffle(buffer_size=len(imgs), seed=seed)
+    dataset = dataset.map(parse_example, num_parallel_calls=1)
     dataset = dataset.batch(batch)
-    dataset = dataset.prefetch(tf.data.AUTOTUNE)
+    dataset = dataset.prefetch(buffer_size=1)
 
     return dataset, imgs.shape
 
 
-def load_datasets(channels, generated_channels, img_w, batch, sample_pct):
+def load_datasets(channels, generated_channels, img_w, batch, sample_pct, seed=None):
     train, valid, _ = data.preprocess(channels, generated_channels, img_w, force=False)
-    train_ds = build_dataset(train, batch, sample_pct=sample_pct)
-    valid_ds = build_dataset(valid, batch)
+    train_ds = build_dataset(train, batch, seed, sample_pct=sample_pct)
+    valid_ds = build_dataset(valid, batch, seed)
     return train_ds, valid_ds
 
 
@@ -238,6 +238,13 @@ def set_seed(seed):
     random.seed(seed)
     np.random.seed(seed)
     tf.random.set_seed(seed)
+    
+    # Força TensorFlow a ser determinístico (mais lento, mas reproduzível)
+    tf.config.experimental.enable_op_determinism()
+    
+    # Desativa otimizações não-determinísticas
+    tf.config.run_functions_eagerly(True)
+
 
 
 def main(
@@ -253,7 +260,7 @@ def main(
 ):
     set_seed(seed)
 
-    train_ds, valid_ds = load_datasets(channels, generated_channels, img_w, batch, sample_pct)
+    train_ds, valid_ds = load_datasets(channels, generated_channels, img_w, batch, sample_pct, seed=seed)
 
     model = build_model(
         (img_w, img_w, len(channels) + len(generated_channels)), learning_rate
@@ -266,4 +273,4 @@ def main(
 
 
 if __name__ == "__main__":
-    main(sample_pct=.1, seed=3)
+    main(sample_pct=.1, seed=3, patience=100)
