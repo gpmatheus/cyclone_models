@@ -82,9 +82,16 @@ def build_dataset(data, batch, seed=None, sample_pct=1.0):
     dataset = tf.data.Dataset.from_tensor_slices((imgs, labels))
     dataset = dataset.repeat()
     dataset = dataset.shuffle(buffer_size=len(imgs), seed=seed)
-    dataset = dataset.map(parse_example, num_parallel_calls=(1 if reproduc else tf.data.AUTOTUNE))
+    
+    # Adiciona opções determinísticas se reprodutibilidade for necessária
+    if reproduc:
+        options = tf.data.Options()
+        options.experimental_deterministic = True
+        dataset = dataset.with_options(options)
+    
+    dataset = dataset.map(parse_example, num_parallel_calls=tf.data.AUTOTUNE)
     dataset = dataset.batch(batch)
-    dataset = dataset.prefetch(buffer_size=(1 if reproduc else tf.data.AUTOTUNE))
+    dataset = dataset.prefetch(buffer_size=tf.data.AUTOTUNE)
 
     return dataset, imgs.shape
 
