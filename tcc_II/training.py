@@ -57,7 +57,10 @@ def preprocess_image_tf(image):
     return tf.image.resize_with_crop_or_pad(rotated, 64, 64)
 
 
-def build_dataset(data, batch, seed, sample_pct=1.0):
+def build_dataset(data, batch, seed=None, sample_pct=1.0):
+
+    reproduc = seed is not None
+
     imgs, labels = data
 
     imgs = imgs.astype("float32")
@@ -79,17 +82,17 @@ def build_dataset(data, batch, seed, sample_pct=1.0):
     dataset = tf.data.Dataset.from_tensor_slices((imgs, labels))
     dataset = dataset.repeat()
     dataset = dataset.shuffle(buffer_size=len(imgs), seed=seed)
-    dataset = dataset.map(parse_example, num_parallel_calls=1)
+    dataset = dataset.map(parse_example, num_parallel_calls=(1 if reproduc else tf.data.AUTOTUNE))
     dataset = dataset.batch(batch)
-    dataset = dataset.prefetch(buffer_size=1)
+    dataset = dataset.prefetch(buffer_size=(1 if reproduc else tf.data.AUTOTUNE))
 
     return dataset, imgs.shape
 
 
 def load_datasets(channels, generated_channels, img_w, batch, sample_pct, seed=None):
     train, valid, _ = data.preprocess(channels, generated_channels, img_w, force=False)
-    train_ds = build_dataset(train, batch, seed, sample_pct=sample_pct)
-    valid_ds = build_dataset(valid, batch, seed)
+    train_ds = build_dataset(train, batch, seed=seed, sample_pct=sample_pct)
+    valid_ds = build_dataset(valid, batch, seed=seed)
     return train_ds, valid_ds
 
 
@@ -196,14 +199,27 @@ def train_model(
     batch,
     patience,
 ):
-
     train_ds, train_shape = train_ds
     valid_ds, valid_shape = valid_ds
 
+    steps_per_epoch = train_shape[0] // batch
+    validation_steps = valid_shape[0] // batch
+
+    # Para o treinamento quando a val_loss não melhora por `patience` épocas
     early_stopping = keras.callbacks.EarlyStopping(
-        monitor="val_mse",
+        monitor="val_loss",
         patience=patience,
         restore_best_weights=True,
+        verbose=1,
+    )
+
+    # Reduz o LR quando a val_loss estagna (complementa o CosineDecay)
+    reduce_lr = keras.callbacks.ReduceLROnPlateau(
+        monitor="val_loss",
+        factor=0.5,
+        patience=patience // 2,
+        min_lr=1e-7,
+        verbose=1,
     )
 
     with tf.device("/GPU:0"):
@@ -211,9 +227,9 @@ def train_model(
             train_ds,
             validation_data=valid_ds,
             epochs=epochs,
-            steps_per_epoch=train_shape[0] // batch,
-            validation_steps=valid_shape[0] // batch,
-            callbacks=[early_stopping],
+            steps_per_epoch=steps_per_epoch,
+            validation_steps=validation_steps,
+            callbacks=[early_stopping, reduce_lr],
         )
 
     return model, history
@@ -255,10 +271,11 @@ def main(
     learning_rate=5e-5,
     epochs=500,
     sample_pct=1.0,
-    seed=1,
+    seed=None,
     patience=30,
 ):
-    set_seed(seed)
+    if seed is not None: 
+        set_seed(seed)
 
     train_ds, valid_ds = load_datasets(channels, generated_channels, img_w, batch, sample_pct, seed=seed)
 
@@ -273,4 +290,4 @@ def main(
 
 
 if __name__ == "__main__":
-    main(sample_pct=.1, seed=3, patience=100)
+    main(sample_pct=.1, patience=100, seed=3)
