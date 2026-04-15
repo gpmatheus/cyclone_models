@@ -8,7 +8,7 @@ import random
 keras = tf.keras
 
 try:
-    from .. import data
+    from ... import data
 except ImportError:
     import data
 
