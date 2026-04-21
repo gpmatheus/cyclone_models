@@ -1,0 +1,489 @@
+import dask.array as da
+import numpy as np
+import h5py
+import cv2
+import pandas as pd
+import datetime
+import os
+from typing import Tuple, List
+
+data_path = os.getenv("DATA_PATH") or "data"
+preprocessed_path = os.getenv("PREPROCESSED_PATH") or "data/preprocessed"
+print(f"folder_path: {preprocessed_path}")
+preprocessed_train = f"{preprocessed_path}/train.h5"
+preprocessed_valid = f"{preprocessed_path}/valid.h5"
+preprocessed_test = f"{preprocessed_path}/test.h5"
+preprocessed_files = [preprocessed_train, preprocessed_valid, preprocessed_test]
+
+def get_images_slice(images_shape, width):
+    # Calcula o slice para cortar a imagem centralizada com a largura especificada
+    start = images_shape[1] // 2 - width // 2
+    end = images_shape[1] // 2 + width // 2
+    return slice(start, end)
+
+def cut_images(images, width):
+    # Corta as imagens para o tamanho especificado, centralizando o corte
+    slc = get_images_slice(images.shape, width)
+    return images[:, slc, slc, :]
+
+def calculate_img_ration_w(img_w):
+    rotation_width = int(np.ceil(np.sqrt((img_w**2) * 2)))
+    if rotation_width % 2 != 0:
+        rotation_width += 1
+    return rotation_width
+
+def clear_images(images):
+    images = da.nan_to_num(images)
+    images[images > 1000] = 0
+    return images
+
+def get_train_data(images: da.Array | np.ndarray, info: pd.DataFrame) -> Tuple[da.Array, pd.DataFrame]:
+    # Ciclones de 2003-2014
+    years = [datetime.datetime.strptime(i, "%Y%m%d%H").year for i in list(info["time"])]
+    years = np.array(years)
+    train_values = (years >= 2003) & (years <= 2014)
+    train_idx = np.where(train_values)[0]
+    train_img, train_info = images[train_idx], info.iloc[train_idx]
+    train_info = train_info.reset_index(drop=True)
+    return train_img, train_info
+
+def get_valid_data(images: da.Array | np.ndarray, info: pd.DataFrame) -> Tuple[da.Array, pd.DataFrame]:
+    # Ciclones de 2015-2016
+    years = [datetime.datetime.strptime(i, "%Y%m%d%H").year for i in list(info["time"])]
+    years = np.array(years)
+    valid_values = (years >= 2015) & (years <= 2016)
+    valid_idx = np.where(valid_values)[0]
+    valid_img, valid_info = images[valid_idx], info.iloc[valid_idx]
+    valid_info = valid_info.reset_index(drop=True)
+    return valid_img, valid_info
+
+def get_test_data(images: da.Array | np.ndarray, info: pd.DataFrame) -> Tuple[da.Array, pd.DataFrame]:
+    # Ciclones de 2017
+    years = [datetime.datetime.strptime(i, "%Y%m%d%H").year for i in list(info["time"])]
+    years = np.array(years)
+    test_values = years == 2017
+    test_idx = np.where(test_values)[0]
+    test_img, test_info = images[test_idx], info.iloc[test_idx]
+    test_info = test_info.reset_index(drop=True)
+    return test_img, test_info
+
+def split_data(images, info):
+    train_img, train_info = get_train_data(images, info)
+    valid_img, valid_info = get_valid_data(images, info)
+    test_img, test_info = get_test_data(images, info)
+    return (train_img, train_info), (valid_img, valid_info), (test_img, test_info)
+
+def compute(img1, img2):
+    img1 = img1.astype(np.float32)
+    img2 = img2.astype(np.float32)
+
+    # Optical flow usando Farneback (rápido e bom para deep learning)
+    flow = cv2.calcOpticalFlowFarneback(
+        img1, img2,
+        None,
+        pyr_scale=.5,
+        levels=5,
+        winsize=30,
+        iterations=4,
+        poly_n=50,
+        poly_sigma=1.0,
+        flags=0
+    )
+
+    # flow tem shape (H, W, 2): componente horizontal e vertical
+    u = flow[:, :, 0]
+    v = flow[:, :, 1]
+
+    # magnitude e direção
+    magnitude = np.sqrt(u**2 + v**2)
+    direction = np.arctan2(v, u)
+
+    return magnitude, direction
+
+def create_new_channels(
+    cyclone_indexes: Tuple[str, np.ndarray], 
+    dsimages: np.ndarray, 
+    dsinfo: pd.DataFrame,
+    generated_channels: List[int]=[0],
+):
+
+    cyclone_new_channels = []
+
+    for _, indexes in cyclone_indexes:
+
+        if len(indexes) == 0: continue
+
+        images = dsimages[indexes]
+        labels = dsinfo.iloc[indexes]
+
+        # sort values
+        labels = labels.sort_values("time").reset_index(drop=True)
+        images = images[labels.index]
+
+        for idx in range(1, len(indexes)):
+            # Para cada imagem a partir da terceira, calcula novos canais
+            new_imgs = None
+            for gen_ch in generated_channels:
+
+                current_img = images[idx, :, :, gen_ch]
+                previous_img = images[idx - 1, :, :, gen_ch]
+                magnitude, direction = compute(current_img, previous_img)
+
+                magnitude = np.expand_dims(magnitude, axis=-1)
+                direction = np.expand_dims(direction, axis=-1)
+                new_img = np.concatenate((magnitude, direction), axis=-1)
+
+                if new_imgs is None:
+                    new_imgs = new_img
+                    # new_imgs = magnitude
+                else:
+                    new_imgs = np.concatenate((new_imgs, new_img), axis=-1)
+            cyclone_new_channels.append(new_imgs)
+    
+    cyclone_new_channels = np.array(cyclone_new_channels)
+
+    print(cyclone_new_channels.shape)
+
+    if len(cyclone_new_channels.shape) < 4:
+        cyclone_new_channels = np.expand_dims(cyclone_new_channels, axis=-1)
+
+    return cyclone_new_channels
+
+def add_channels(generated_channels, data):
+
+    (trainds, traininfo), (validds, validinfo), (testds, testinfo) = data
+    
+    ids = pd.concat([traininfo, validinfo, testinfo])["ID"].unique()
+
+    train_single_cyclone_indexes = []
+    valid_single_cyclone_indexes = []
+    test_single_cyclone_indexes = []
+
+    print("Filling ids...")
+    for id in ids:
+
+        train_sub_info = traininfo[traininfo["ID"] == id]
+        train_sub_info = train_sub_info.sort_values("time")
+        train_sorted_idx = train_sub_info.index
+        train_single_cyclone_indexes.append((id, train_sorted_idx))
+
+        valid_sub_info = validinfo[validinfo["ID"] == id]
+        valid_sub_info = valid_sub_info.sort_values("time")
+        valid_sorted_idx = valid_sub_info.index
+        valid_single_cyclone_indexes.append((id, valid_sorted_idx))
+
+        test_sub_info = testinfo[testinfo["ID"] == id]
+        test_sub_info = test_sub_info.sort_values("time")
+        test_sorted_idx = test_sub_info.index
+        test_single_cyclone_indexes.append((id, test_sorted_idx))
+    
+    print("Creating new channels...")
+    trainds_new_channels = create_new_channels(
+        train_single_cyclone_indexes, 
+        trainds, 
+        traininfo, 
+        generated_channels=generated_channels,
+    )
+
+    validds_new_channels = create_new_channels(
+        valid_single_cyclone_indexes, 
+        validds, 
+        validinfo, 
+        generated_channels=generated_channels,
+    )
+
+    testds_new_channels = create_new_channels(
+        test_single_cyclone_indexes, 
+        testds, 
+        testinfo, 
+        generated_channels=generated_channels,
+    )
+
+    print("\nLoading processed images\n")
+
+    train_images = ()
+    train_labels = []
+    for id, cyc_idx in train_single_cyclone_indexes:
+        cyc_idx = cyc_idx[1:]  # Remove as duas primeiras imagens
+        imgs = trainds[cyc_idx]
+        lbls = traininfo.iloc[cyc_idx]
+        train_images += (imgs,)
+        train_labels.append(lbls)
+    
+    valid_images = ()
+    valid_labels = []
+    for id, cyc_idx in valid_single_cyclone_indexes:
+        cyc_idx = cyc_idx[1:]  # Remove as duas primeiras imagens
+        imgs = validds[cyc_idx]
+        lbls = validinfo.iloc[cyc_idx]
+        valid_images += (imgs,)
+        valid_labels.append(lbls)
+
+    test_images = ()
+    test_labels = []
+    for id, cyc_idx in test_single_cyclone_indexes:
+        cyc_idx = cyc_idx[1:]  # Remove as duas primeiras imagens
+        imgs = testds[cyc_idx]
+        lbls = testinfo.iloc[cyc_idx]
+        test_images += (imgs,)
+        test_labels.append(lbls)
+
+    # Dataset de treinamento
+    print("Concatenating train dataset images...")
+    train_images = np.concatenate(train_images, axis=0)
+
+    print("Concatenating train dataset labels...")
+    train_labels = pd.concat(train_labels, axis=0)
+    train_labels = train_labels.reset_index(drop=True)
+
+    print(f"Train dataset shape: {train_images.shape}")
+
+    # Concatena os canais originais do dataset de treino com os novos canais gerados
+    train_images = np.concatenate((train_images, trainds_new_channels), axis=-1)
+    print(f"Train dataset new shape: {train_images.shape}\n")
+
+
+    # Dataset de validação
+    print("Concatenating validation dataset images...")
+    valid_images = np.concatenate(valid_images, axis=0)
+
+    print("Concatenating valid dataset labels...")
+    valid_labels = pd.concat(valid_labels, axis=0)
+    valid_labels = valid_labels.reset_index(drop=True)
+
+    print(f"Validation dataset shape: {valid_images.shape}")
+
+    # Concatena os canais originais do dataset de validação com os novos canais gerados
+    valid_images = np.concatenate((valid_images, validds_new_channels), axis=-1)
+    print(f"Validation dataset new shape: {valid_images.shape}\n")
+
+
+    # Dataset de teste
+    print("Concatenating test dataset images...")
+    test_images = np.concatenate(test_images, axis=0)
+
+    print("Concatenating test dataset labels...")
+    test_labels = pd.concat(test_labels, axis=0)
+    test_labels = test_labels.reset_index(drop=True)
+
+    print(f"Test dataset shape: {test_images.shape}")
+
+    # Concatena os canais originais do dataset de teste com os novos canais gerados
+    test_images = np.concatenate((test_images, testds_new_channels), axis=-1)
+    print(f"Test dataset new shape: {test_images.shape}\n")
+
+    ds = (
+        (train_images, train_labels),
+        (valid_images, valid_labels),
+        (test_images, test_labels)
+    )
+    return ds
+
+def load_data():
+    dsfiles = ["TCIR-ATLN_EPAC_WPAC.h5", "TCIR-ALL_2017.h5", "TCIR-CPAC_IO_SH.h5"]
+    dspaths = [f"{data_path}/{file}" for file in dsfiles]
+    files = [h5py.File(file, mode="r") for file in dspaths]
+    data = [da.from_array(file["matrix"]) for file in files]
+    info = [pd.read_hdf(file, key="info", mode="r") for file in dspaths]
+
+    data = da.concatenate(data, axis=0) # Lazy loaded
+    info = pd.concat(info).reset_index(drop=True)
+    return data, info
+
+
+def load_normalized_data(
+    channels: List[int], 
+    img_w: int,
+) -> Tuple[
+    Tuple[np.ndarray, pd.DataFrame], 
+    Tuple[np.ndarray, pd.DataFrame], 
+    Tuple[np.ndarray, pd.DataFrame]
+]:
+    print("Loading data...")
+
+    data, info = load_data()
+    trainds, traininfo = get_train_data(data, info)
+
+    rotation_width = calculate_img_ration_w(img_w)
+    trainds = cut_images(trainds, rotation_width)
+
+    print(f"Removing nan values and values larger than 1000 from train dataset")
+    trainds = clear_images(trainds)
+
+    print("Calculating means...")
+    means = [da.mean(trainds[:, :, :, i]).compute() for i in channels]
+    print(f"Means values: {means}")
+
+    print("Calcularing standard deviations...")
+    std = [da.std(trainds[:, :, :, i]).compute() for i in channels]
+    print(f"Standard deviation values: {std}")
+
+    validds, validinfo = get_valid_data(data, info)
+    testds, testinfo = get_test_data(data, info)
+
+    validds = cut_images(validds, rotation_width)
+    testds = cut_images(testds, rotation_width)
+
+    validds = clear_images(validds)
+    testds = clear_images(testds)
+
+    trainds = trainds.compute()
+    validds = validds.compute()
+    testds = testds.compute()
+
+    trainds = trainds[:, :, :, channels]
+    validds = validds[:, :, :, channels]
+    testds = testds[:, :, :, channels]
+
+    print("Normalizing images...")
+    for chan in range(len(channels)):
+        trainds[:, :, :, chan] -= means[chan]
+        trainds[:, :, :, chan] /= std[chan]
+
+        validds[:, :, :, chan] -= means[chan]
+        validds[:, :, :, chan] /= std[chan]
+
+        testds[:, :, :, chan] -= means[chan]
+        testds[:, :, :, chan] /= std[chan]
+
+    return (trainds, traininfo), (validds, validinfo), (testds, testinfo)
+
+
+def preprocess(channels, generated_channels, img_w, force=True):
+
+    if not force:
+        print("Checking if files exist")
+        exists = all([os.path.isfile(file) for file in preprocessed_files])
+
+        if exists:
+            print("Files exist. Loading files...")
+            with h5py.File(preprocessed_train, mode="r") as train:
+                train_imgs = train["matrix"][:]
+            
+            train_labels = pd.read_hdf(preprocessed_train, key="info", mode="r")
+            train = (train_imgs, train_labels)
+            
+
+            with h5py.File(preprocessed_valid, mode="r") as valid:
+                valid_imgs = valid["matrix"][:]
+            
+            valid_labels = pd.read_hdf(preprocessed_valid, key="info", mode="r")
+            valid = (valid_imgs, valid_labels)
+
+            with h5py.File(preprocessed_test, mode="r") as test:
+                test_imgs = test["matrix"][:]
+            
+            test_labels = pd.read_hdf(preprocessed_test, key="info", mode="r")
+            test = (test_imgs, test_labels)
+
+            print(f"\nTrain images shape: {train_imgs.shape}")
+            print(f"Train labels shape: {train_labels.shape}")
+            print(f"\nValidation images shape: {valid_imgs.shape}")
+            print(f"Validation labels shape: {valid_labels.shape}")
+            print(f"\nTest images shape: {test_imgs.shape}")
+            print(f"Test labels shape: {test_labels.shape}")
+            return train, valid, test
+
+    normalized_data = load_normalized_data(channels, img_w)
+    (trainds, traininfo), (validds, validinfo), (testds, testinfo) = normalized_data
+
+    print(f"Train dataset shape: {trainds.shape}")
+    print(f"Train info shape: {traininfo.shape}\n")
+    print(f"Validation dataset shape: {validds.shape}")
+    print(f"Validation info shape: {validinfo.shape}\n")
+    print(f"Test dataset shape: {testds.shape}")
+    print(f"Test info shape: {testinfo.shape}\n")
+
+    normalized_data = add_channels(generated_channels, normalized_data)
+
+    return normalized_data
+
+
+def save_preprocessed(channels=[0, 3], generated_channels=[0], img_w=64, data=None):
+
+    if not data:
+        # Se não fornecido, pré-processa os dados
+        (
+            (train_imgs, train_labels),
+            (valid_imgs, valid_labels),
+            (test_imgs, test_labels),
+        ) = preprocess(channels, generated_channels, img_w, force=True)
+    else:
+        # Usa os dados fornecidos
+        (
+            (train_imgs, train_labels),
+            (valid_imgs, valid_labels),
+            (test_imgs, test_labels),
+        ) = data
+
+    print("\nTrain dataset:")
+    print(f"Images shape: {train_imgs.shape}")
+    print(f"Info shape: {train_labels.shape}\n")
+
+    print("\nValidation dataset:")
+    print(f"Images shape: {valid_imgs.shape}")
+    print(f"Info shape: {valid_labels.shape}\n")
+
+    print("\nTest dataset:")
+    print(f"Images shape: {test_imgs.shape}")
+    print(f"Info shape: {test_labels.shape}\n")
+
+    # Define as formas para os datasets HDF5
+    img_new_shape = train_imgs.shape[1:]
+    labels_new_shape = train_labels.shape[1:]
+
+    img_max_shape = (None,) + img_new_shape
+
+    img_new_shape = (0,) + img_new_shape
+    labels_new_shape = (0,) + labels_new_shape
+
+    os.makedirs(data_path, exist_ok=True)
+
+    print("Writing traininig file...")
+    print(train_imgs.shape)
+    print(train_labels.shape)
+    # Salva o conjunto de treino
+    with h5py.File(preprocessed_train, mode="w") as train:
+
+        if "matrix" not in train:
+            train.create_dataset("matrix", shape=img_new_shape, maxshape=img_max_shape)
+        train["matrix"].resize(train["matrix"].shape[0] + train_imgs.shape[0], axis=0)
+        train["matrix"][-train_imgs.shape[0] :] = train_imgs
+
+    train_labels.to_hdf(preprocessed_train, key="info", mode="a")
+        
+
+    print("Writing validation file...")
+    print(valid_imgs.shape)
+    print(valid_labels.shape)
+    # Salva o conjunto de validação
+    with h5py.File(preprocessed_valid, mode="w") as valid:
+
+        if "matrix" not in valid:
+            valid.create_dataset("matrix", shape=img_new_shape, maxshape=img_max_shape)
+        valid["matrix"].resize(valid["matrix"].shape[0] + valid_imgs.shape[0], axis=0)
+        valid["matrix"][-valid_imgs.shape[0] :] = valid_imgs
+
+    valid_labels.to_hdf(preprocessed_valid, key="info", mode="a")
+
+    print("Writing test file...")
+    print(test_imgs.shape)
+    print(test_labels.shape)
+    # Salva o conjunto de teste
+    with h5py.File(preprocessed_test, mode="w") as test:
+
+        if "matrix" not in test:
+            test.create_dataset("matrix", shape=img_new_shape, maxshape=img_max_shape)
+        test["matrix"].resize(test["matrix"].shape[0] + test_imgs.shape[0], axis=0)
+        test["matrix"][-test_imgs.shape[0] :] = test_imgs
+
+    test_labels.to_hdf(preprocessed_test, key="info", mode="a")
+
+
+def main():
+    # Função principal para executar o pré-processamento e salvamento
+    save_preprocessed()
+
+
+if __name__ == "__main__":
+    main()
