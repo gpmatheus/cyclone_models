@@ -73,21 +73,27 @@ def split_data(images, info):
     return (train_img, train_info), (valid_img, valid_info), (test_img, test_info)
 
 
-def compute(img, img_1,):
-    return np.abs(img - img_1)
+def compute(img_t, img_t1):
+    # Suporta tanto numpy arrays quanto dask arrays
+    return da.abs(img_t - img_t1) if isinstance(img_t, da.Array) else np.abs(img_t - img_t1)
 
 def create_new_channels(
     cyclone_indexes: Tuple[str, np.ndarray], 
-    dsimages: np.ndarray, 
+    dsimages: da.Array | np.ndarray, 
     dsinfo: pd.DataFrame,
     generated_channels: List[int]=[0],
 ):
-
+    """
+    Cria novos canais calculando diferenças entre frames consecutivas.
+    Usa dask arrays para evitar carregar tudo na memória.
+    """
     cyclone_new_channels = []
+    generated_channels = list(range(len(generated_channels)))
 
     for _, indexes in cyclone_indexes:
 
-        if len(indexes) == 0: continue
+        if len(indexes) < 3: 
+            continue
 
         images = dsimages[indexes]
         labels = dsinfo.iloc[indexes]
@@ -96,33 +102,28 @@ def create_new_channels(
         labels = labels.sort_values("time").reset_index(drop=True)
         images = images[labels.index]
 
-        for idx in range(1, len(indexes)):
-            # Para cada imagem a partir da terceira, calcula novos canais
-            new_imgs = None
-            for gen_ch in generated_channels:
+        img_t = images[1:, :, :, generated_channels]
+        img_t1 = images[:-1, :, :, generated_channels]
 
-                current_img = images[idx, :, :, gen_ch]
-                previous_img = images[idx - 1, :, :, gen_ch]
-                new_img = compute(current_img, previous_img)
+        new_channels = compute(img_t, img_t1)
 
-                new_img = np.expand_dims(new_img, axis=-1)
-
-                if new_imgs is None:
-                    new_imgs = new_img
-                else:
-                    new_imgs = np.concatenate((new_imgs, new_img), axis=-1)
-
-            cyclone_new_channels.append(new_imgs)
+        cyclone_new_channels.append(new_channels)
     
-    cyclone_new_channels = np.array(cyclone_new_channels)
+    # Usar dask concatenate se dados são dask arrays
+    if len(cyclone_new_channels) > 0 and isinstance(cyclone_new_channels[0], da.Array):
+        cyclone_new_channels = da.concatenate(cyclone_new_channels, axis=0)
+    else:
+        cyclone_new_channels = np.concatenate(cyclone_new_channels, axis=0)
 
-    if len(cyclone_new_channels.shape) < 4:
-        cyclone_new_channels = np.expand_dims(cyclone_new_channels, axis=-1)
+    print(cyclone_new_channels.shape)
 
     return cyclone_new_channels
 
 def add_channels(generated_channels, data):
-
+    """
+    Adiciona novos canais gerados aos dados originais.
+    Mantém dados em dask arrays durante todo o processamento.
+    """
     (trainds, traininfo), (validds, validinfo), (testds, testinfo) = data
     
     ids = pd.concat([traininfo, validinfo, testinfo])["ID"].unique()
@@ -171,38 +172,44 @@ def add_channels(generated_channels, data):
         generated_channels=generated_channels,
     )
 
-    print("\nLoading processed images\n")
+    print("\nPreparing datasets (lazy)...\n")
 
-    train_images = ()
-    train_labels = []
-    for id, cyc_idx in train_single_cyclone_indexes:
-        cyc_idx = cyc_idx[1:]  # Remove as duas primeiras imagens
-        imgs = trainds[cyc_idx]
-        lbls = traininfo.iloc[cyc_idx]
-        train_images += (imgs,)
-        train_labels.append(lbls)
+    # Construir índices para remover a primeira imagem e concatenar
+    train_indices_to_keep = []
+    valid_indices_to_keep = []
+    test_indices_to_keep = []
     
-    valid_images = ()
+    train_labels = []
     valid_labels = []
-    for id, cyc_idx in valid_single_cyclone_indexes:
-        cyc_idx = cyc_idx[1:]  # Remove as duas primeiras imagens
-        imgs = validds[cyc_idx]
-        lbls = validinfo.iloc[cyc_idx]
-        valid_images += (imgs,)
-        valid_labels.append(lbls)
-
-    test_images = ()
     test_labels = []
-    for id, cyc_idx in test_single_cyclone_indexes:
-        cyc_idx = cyc_idx[1:]  # Remove as duas primeiras imagens
-        imgs = testds[cyc_idx]
-        lbls = testinfo.iloc[cyc_idx]
-        test_images += (imgs,)
-        test_labels.append(lbls)
 
-    # Dataset de treinamento
-    print("Concatenating train dataset images...")
-    train_images = np.concatenate(train_images, axis=0)
+    for id, cyc_idx in train_single_cyclone_indexes:
+        cyc_idx = cyc_idx[1:]  # Remove a primeira imagem
+        train_indices_to_keep.extend(cyc_idx)
+        train_labels.append(traininfo.iloc[cyc_idx])
+
+    for id, cyc_idx in valid_single_cyclone_indexes:
+        cyc_idx = cyc_idx[1:]  # Remove a primeira imagem
+        valid_indices_to_keep.extend(cyc_idx)
+        valid_labels.append(validinfo.iloc[cyc_idx])
+
+    for id, cyc_idx in test_single_cyclone_indexes:
+        cyc_idx = cyc_idx[1:]  # Remove a primeira imagem
+        test_indices_to_keep.extend(cyc_idx)
+        test_labels.append(testinfo.iloc[cyc_idx])
+
+    # Usar slicing direto do dask array
+    print("Slicing train dataset images...")
+    train_indices_to_keep = np.array(sorted(set(train_indices_to_keep)))
+    train_images = trainds[train_indices_to_keep]
+    
+    print("Slicing validation dataset images...")
+    valid_indices_to_keep = np.array(sorted(set(valid_indices_to_keep)))
+    valid_images = validds[valid_indices_to_keep]
+
+    print("Slicing test dataset images...")
+    test_indices_to_keep = np.array(sorted(set(test_indices_to_keep)))
+    test_images = testds[test_indices_to_keep]
 
     print("Concatenating train dataset labels...")
     train_labels = pd.concat(train_labels, axis=0)
@@ -210,29 +217,21 @@ def add_channels(generated_channels, data):
 
     print(f"Train dataset shape: {train_images.shape}")
 
-    # Concatena os canais originais do dataset de treino com os novos canais gerados
-    train_images = np.concatenate((train_images, trainds_new_channels), axis=-1)
+    # Concatena os canais originais com os novos canais usando dask
+    print("Concatenating channels for train dataset...")
+    train_images = da.concatenate((train_images, trainds_new_channels), axis=-1)
     print(f"Train dataset new shape: {train_images.shape}\n")
 
-
-    # Dataset de validação
-    print("Concatenating validation dataset images...")
-    valid_images = np.concatenate(valid_images, axis=0)
-
-    print("Concatenating valid dataset labels...")
+    print("Concatenating validation dataset labels...")
     valid_labels = pd.concat(valid_labels, axis=0)
     valid_labels = valid_labels.reset_index(drop=True)
 
     print(f"Validation dataset shape: {valid_images.shape}")
 
-    # Concatena os canais originais do dataset de validação com os novos canais gerados
-    valid_images = np.concatenate((valid_images, validds_new_channels), axis=-1)
+    # Concatena os canais originais com os novos canais usando dask
+    print("Concatenating channels for validation dataset...")
+    valid_images = da.concatenate((valid_images, validds_new_channels), axis=-1)
     print(f"Validation dataset new shape: {valid_images.shape}\n")
-
-
-    # Dataset de teste
-    print("Concatenating test dataset images...")
-    test_images = np.concatenate(test_images, axis=0)
 
     print("Concatenating test dataset labels...")
     test_labels = pd.concat(test_labels, axis=0)
@@ -240,8 +239,9 @@ def add_channels(generated_channels, data):
 
     print(f"Test dataset shape: {test_images.shape}")
 
-    # Concatena os canais originais do dataset de teste com os novos canais gerados
-    test_images = np.concatenate((test_images, testds_new_channels), axis=-1)
+    # Concatena os canais originais com os novos canais usando dask
+    print("Concatenating channels for test dataset...")
+    test_images = da.concatenate((test_images, testds_new_channels), axis=-1)
     print(f"Test dataset new shape: {test_images.shape}\n")
 
     ds = (
@@ -267,10 +267,14 @@ def load_normalized_data(
     channels: List[int], 
     img_w: int,
 ) -> Tuple[
-    Tuple[np.ndarray, pd.DataFrame], 
-    Tuple[np.ndarray, pd.DataFrame], 
-    Tuple[np.ndarray, pd.DataFrame]
+    Tuple[da.Array, pd.DataFrame], 
+    Tuple[da.Array, pd.DataFrame], 
+    Tuple[da.Array, pd.DataFrame]
 ]:
+    """
+    Carrega e normaliza dados mantendo dask arrays para economizar memória.
+    Compute acontece apenas quando os dados são escritos no arquivo.
+    """
     print("Loading data...")
 
     data, info = load_data()
@@ -299,24 +303,41 @@ def load_normalized_data(
     validds = clear_images(validds)
     testds = clear_images(testds)
 
-    trainds = trainds.compute()
-    validds = validds.compute()
-    testds = testds.compute()
-
+    # Manter como dask arrays! Só selecionar os canais
     trainds = trainds[:, :, :, channels]
     validds = validds[:, :, :, channels]
     testds = testds[:, :, :, channels]
 
-    print("Normalizing images...")
-    for chan in range(len(channels)):
-        trainds[:, :, :, chan] -= means[chan]
-        trainds[:, :, :, chan] /= std[chan]
+    print("Normalizing images (lazy)...")
+    # Função auxiliar para normalizar um bloco
+    def normalize_block(block, channel_means, channel_stds):
+        """Normaliza um bloco de imagens"""
+        normalized = np.copy(block)
+        for i in range(normalized.shape[-1]):
+            normalized[..., i] = (normalized[..., i] - channel_means[i]) / channel_stds[i]
+        return normalized
 
-        validds[:, :, :, chan] -= means[chan]
-        validds[:, :, :, chan] /= std[chan]
-
-        testds[:, :, :, chan] -= means[chan]
-        testds[:, :, :, chan] /= std[chan]
+    # Aplicar normalização lazy com map_blocks
+    trainds = trainds.map_blocks(
+        normalize_block,
+        channel_means=np.array(means),
+        channel_stds=np.array(std),
+        dtype=trainds.dtype
+    )
+    
+    validds = validds.map_blocks(
+        normalize_block,
+        channel_means=np.array(means),
+        channel_stds=np.array(std),
+        dtype=validds.dtype
+    )
+    
+    testds = testds.map_blocks(
+        normalize_block,
+        channel_means=np.array(means),
+        channel_stds=np.array(std),
+        dtype=testds.dtype
+    )
 
     return (trainds, traininfo), (validds, validinfo), (testds, testinfo)
 
@@ -371,8 +392,11 @@ def preprocess(channels, generated_channels, img_w, force=True):
     return normalized_data
 
 
-def save_preprocessed(channels=[0, 3], generated_channels=[0], img_w=64, data=None):
-
+def save_preprocessed(channels=[0, 3], generated_channels=[0, 3], img_w=64, data=None):
+    """
+    Salva dados pré-processados em arquivos HDF5.
+    Realiza compute apenas durante a escrita no arquivo para economizar memória.
+    """
     if not data:
         # Se não fornecido, pré-processa os dados
         (
@@ -409,18 +433,24 @@ def save_preprocessed(channels=[0, 3], generated_channels=[0], img_w=64, data=No
     img_new_shape = (0,) + img_new_shape
     labels_new_shape = (0,) + labels_new_shape
 
-    os.makedirs(data_path, exist_ok=True)
+    os.makedirs(preprocessed_path, exist_ok=True)
 
-    print("Writing traininig file...")
+    print("Writing training file...")
     print(train_imgs.shape)
     print(train_labels.shape)
-    # Salva o conjunto de treino
+    # Salva o conjunto de treino - compute apenas na escrita
     with h5py.File(preprocessed_train, mode="w") as train:
-
         if "matrix" not in train:
-            train.create_dataset("matrix", shape=img_new_shape, maxshape=img_max_shape)
-        train["matrix"].resize(train["matrix"].shape[0] + train_imgs.shape[0], axis=0)
-        train["matrix"][-train_imgs.shape[0] :] = train_imgs
+            train.create_dataset("matrix", shape=img_new_shape, maxshape=img_max_shape, chunks=True)
+        
+        # Compute e salva em chunks para economizar memória
+        if isinstance(train_imgs, da.Array):
+            train_imgs_computed = train_imgs.compute()
+        else:
+            train_imgs_computed = train_imgs
+            
+        train["matrix"].resize(train["matrix"].shape[0] + train_imgs_computed.shape[0], axis=0)
+        train["matrix"][-train_imgs_computed.shape[0] :] = train_imgs_computed
 
     train_labels.to_hdf(preprocessed_train, key="info", mode="a")
         
@@ -430,11 +460,17 @@ def save_preprocessed(channels=[0, 3], generated_channels=[0], img_w=64, data=No
     print(valid_labels.shape)
     # Salva o conjunto de validação
     with h5py.File(preprocessed_valid, mode="w") as valid:
-
         if "matrix" not in valid:
-            valid.create_dataset("matrix", shape=img_new_shape, maxshape=img_max_shape)
-        valid["matrix"].resize(valid["matrix"].shape[0] + valid_imgs.shape[0], axis=0)
-        valid["matrix"][-valid_imgs.shape[0] :] = valid_imgs
+            valid.create_dataset("matrix", shape=img_new_shape, maxshape=img_max_shape, chunks=True)
+        
+        # Compute e salva em chunks para economizar memória
+        if isinstance(valid_imgs, da.Array):
+            valid_imgs_computed = valid_imgs.compute()
+        else:
+            valid_imgs_computed = valid_imgs
+            
+        valid["matrix"].resize(valid["matrix"].shape[0] + valid_imgs_computed.shape[0], axis=0)
+        valid["matrix"][-valid_imgs_computed.shape[0] :] = valid_imgs_computed
 
     valid_labels.to_hdf(preprocessed_valid, key="info", mode="a")
 
@@ -443,11 +479,17 @@ def save_preprocessed(channels=[0, 3], generated_channels=[0], img_w=64, data=No
     print(test_labels.shape)
     # Salva o conjunto de teste
     with h5py.File(preprocessed_test, mode="w") as test:
-
         if "matrix" not in test:
-            test.create_dataset("matrix", shape=img_new_shape, maxshape=img_max_shape)
-        test["matrix"].resize(test["matrix"].shape[0] + test_imgs.shape[0], axis=0)
-        test["matrix"][-test_imgs.shape[0] :] = test_imgs
+            test.create_dataset("matrix", shape=img_new_shape, maxshape=img_max_shape, chunks=True)
+        
+        # Compute e salva em chunks para economizar memória
+        if isinstance(test_imgs, da.Array):
+            test_imgs_computed = test_imgs.compute()
+        else:
+            test_imgs_computed = test_imgs
+            
+        test["matrix"].resize(test["matrix"].shape[0] + test_imgs_computed.shape[0], axis=0)
+        test["matrix"][-test_imgs_computed.shape[0] :] = test_imgs_computed
 
     test_labels.to_hdf(preprocessed_test, key="info", mode="a")
 
