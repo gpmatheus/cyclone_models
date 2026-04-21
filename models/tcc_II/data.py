@@ -72,10 +72,9 @@ def split_data(images, info):
     test_img, test_info = get_test_data(images, info)
     return (train_img, train_info), (valid_img, valid_info), (test_img, test_info)
 
-
-def compute(img, img_1, img_2):
+def compute(img_t, img_t1, img_t2):
     # Calcula a diferença absoluta entre imagens consecutivas para detecção de movimento
-    return np.abs(img - (img_1 * 2) + img_2)
+    return np.abs(img_t - (img_t1 * 2) + img_t2)
 
 def create_new_channels(
     cyclone_indexes: Tuple[str, np.ndarray], 
@@ -84,11 +83,13 @@ def create_new_channels(
     generated_channels: List[int]=[0],
 ):
 
-    cyclone_new_channels = []
+    cyclone_new_channels = ()
+    generated_channels = list(range(len(generated_channels)))
 
     for _, indexes in cyclone_indexes:
 
-        if len(indexes) == 0: continue
+        if len(indexes) < 3: 
+            continue
 
         images = dsimages[indexes]
         labels = dsinfo.iloc[indexes]
@@ -97,29 +98,17 @@ def create_new_channels(
         labels = labels.sort_values("time").reset_index(drop=True)
         images = images[labels.index]
 
-        for idx in range(2, len(indexes)):
-            # Para cada imagem a partir da terceira, calcula novos canais
-            new_imgs = None
-            for gen_ch_idx in range(len(generated_channels)):
+        img_t   = images[2:, :, :, generated_channels]
+        img_t1  = images[1:-1, :, :, generated_channels]
+        img_t2  = images[:-2, :, :, generated_channels]
 
-                current_img = images[idx, :, :, gen_ch_idx]
-                previous_img = images[idx - 1, :, :, gen_ch_idx]
-                previous_previous_img = images[idx - 2, :, :, gen_ch_idx]
-                new_img = compute(current_img, previous_img, previous_previous_img)
-
-                new_img = np.expand_dims(new_img, axis=-1)
-
-                if new_imgs is None:
-                    new_imgs = new_img
-                else:
-                    new_imgs = np.concatenate((new_imgs, new_img), axis=-1)
-
-            cyclone_new_channels.append(new_imgs)
+        new_channels = compute(img_t, img_t1, img_t2)
+            
+        cyclone_new_channels += (new_channels,)
     
-    cyclone_new_channels = np.array(cyclone_new_channels)
+    cyclone_new_channels = np.concatenate(cyclone_new_channels, axis=0)
 
-    if len(cyclone_new_channels.shape) < 4:
-        cyclone_new_channels = np.expand_dims(cyclone_new_channels, axis=-1)
+    print(cyclone_new_channels.shape)
 
     return cyclone_new_channels
 
