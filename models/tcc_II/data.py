@@ -100,15 +100,17 @@ def create_new_channels(
         for idx in range(2, len(indexes)):
             # Para cada imagem a partir da terceira, calcula novos canais
             new_imgs = None
-            for gen_ch in generated_channels:
+            for gen_ch_idx in range(len(generated_channels)):
 
-                current_img = images[idx, :, :, gen_ch]
-                previous_img = images[idx - 1, :, :, gen_ch]
-                previous_previous_img = images[idx - 2, :, :, gen_ch]
+                current_img = images[idx, :, :, gen_ch_idx]
+                previous_img = images[idx - 1, :, :, gen_ch_idx]
+                previous_previous_img = images[idx - 2, :, :, gen_ch_idx]
                 new_img = compute(current_img, previous_img, previous_previous_img)
 
-                if not new_imgs:
-                    new_imgs = np.expand_dims(new_img, axis=-1)
+                new_img = np.expand_dims(new_img, axis=-1)
+
+                if new_imgs is None:
+                    new_imgs = new_img
                 else:
                     new_imgs = np.concatenate((new_imgs, new_img), axis=-1)
 
