@@ -103,9 +103,9 @@ def load_datasets(channels, generated_channels, img_w, batch, sample_pct, seed=N
     return train_ds, valid_ds
 
 
-def build_model(input_shape, lr, strides=(2, 2)):
+def build_model(input_shape, lr, l2_regularizer=1e-5, strides=(2, 2)):
     initializer = keras.initializers.RandomNormal(mean=0.0, stddev=0.01)
-    reg = keras.regularizers.L2(5e-5)
+    reg = keras.regularizers.L2(l2_regularizer)
     model = keras.models.Sequential()
     model.add(keras.layers.Input(input_shape))
     model.add(
@@ -280,6 +280,7 @@ def main(
     sample_pct=1.0,
     seed=None,
     patience=30,
+    l2_regularizer=1e-5,
 ):
     if seed is not None: 
         set_seed(seed)
@@ -287,7 +288,7 @@ def main(
     train_ds, valid_ds = load_datasets(channels, generated_channels, img_w, batch, sample_pct, seed=seed)
 
     model = build_model(
-        (img_w, img_w, len(channels) + len(generated_channels)), learning_rate
+        (img_w, img_w, len(channels) + len(generated_channels)), learning_rate, l2_regularizer
     )
     model.summary()
     model, history = train_model(model, train_ds, valid_ds, epochs, batch, patience)
