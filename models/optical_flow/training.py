@@ -297,4 +297,4 @@ def main(
 
 
 if __name__ == "__main__":
-    main(sample_pct=.1, patience=100, seed=3)
+    main()
