@@ -392,7 +392,7 @@ def preprocess(channels, generated_channels, img_w, force=True):
     return normalized_data
 
 
-def save_preprocessed(channels=[0, 3], generated_channels=[0, 3], img_w=64, data=None):
+def save_preprocessed(channels=[0, 3], generated_channels=[0], img_w=64, data=None):
     """
     Salva dados pré-processados em arquivos HDF5.
     Realiza compute apenas durante a escrita no arquivo para economizar memória.
