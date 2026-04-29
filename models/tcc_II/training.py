@@ -97,7 +97,7 @@ def build_dataset(data, batch, seed=None, sample_pct=1.0):
 
 
 def load_datasets(channels, generated_channels, img_w, batch, sample_pct, seed=None):
-    train, valid, _ = data.preprocess(channels, generated_channels, img_w, force=False)
+    train, valid, _ = data.preprocess(channels, generated_channels, img_w, force=True)
     train_ds = build_dataset(train, batch, seed=seed, sample_pct=sample_pct)
     valid_ds = build_dataset(valid, batch, seed=seed)
     return train_ds, valid_ds
