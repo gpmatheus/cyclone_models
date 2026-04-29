@@ -96,8 +96,8 @@ def build_dataset(data, batch, seed=None, sample_pct=1.0):
     return dataset, imgs.shape
 
 
-def load_datasets(channels, generated_channels, img_w, batch, sample_pct, seed=None):
-    train, valid, _ = data.preprocess(channels, generated_channels, img_w, force=False)
+def load_datasets(channels, generated_channels, img_w, batch, sample_pct, seed=None, force=True):
+    train, valid, _ = data.preprocess(channels, generated_channels, img_w, force=force)
     train_ds = build_dataset(train, batch, seed=seed, sample_pct=sample_pct)
     valid_ds = build_dataset(valid, batch, seed=seed)
     return train_ds, valid_ds
@@ -281,11 +281,12 @@ def main(
     seed=None,
     patience=30,
     l2_regularizer=1e-5,
+    force=True,
 ):
     if seed is not None: 
         set_seed(seed)
 
-    train_ds, valid_ds = load_datasets(channels, generated_channels, img_w, batch, sample_pct, seed=seed)
+    train_ds, valid_ds = load_datasets(channels, generated_channels, img_w, batch, sample_pct, seed=seed, force=force)
 
     model = build_model(
         (img_w, img_w, len(channels) + len(generated_channels)), learning_rate, l2_regularizer
