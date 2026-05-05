@@ -209,11 +209,10 @@ def build_model_with_resnet(input_shape, lr, l2_regularizer=1e-5, freeze_base=Tr
         
         # === CAMADAS CUSTOMIZADAS PARA REGRESSÃO ===
         
-        # GlobalAveragePooling2D: reduz (7, 7, 2048) -> (2048,)
-        # Média dos valores em cada mapa de features
-        keras.layers.GlobalAveragePooling2D(),
+        # Flatten: converte (7, 7, 2048) -> (100352,)
+        keras.layers.Flatten(),
         
-        # Dense com 512 neurônios: processa as 2048 features extraídas
+        # Dense com 512 neurônios: processa as features extraídas
         keras.layers.Dense(
             512,
             activation='relu',
@@ -221,20 +220,13 @@ def build_model_with_resnet(input_shape, lr, l2_regularizer=1e-5, freeze_base=Tr
             bias_regularizer=keras.regularizers.L2(l2_regularizer),
         ),
         
-        # Dropout: desliga 50% dos neurônios aleatorios durante treinamento
-        # Evita que o modelo memorize (overfitting)
-        keras.layers.Dropout(0.5),
-        
-        # Dense com 64 neurônios: reduz ainda mais a dimensionalidade
+        # Dense com 64 neurônios: reduz a dimensionalidade
         keras.layers.Dense(
             64,
             activation='relu',
             kernel_regularizer=keras.regularizers.L2(l2_regularizer),
             bias_regularizer=keras.regularizers.L2(l2_regularizer),
         ),
-        
-        # Dropout adicional
-        keras.layers.Dropout(0.3),
         
         # === OUTPUT: Regressão ===
         # Dense com 1 neurônio: prediz um único valor (velocidade Vmax)
@@ -328,7 +320,7 @@ def set_seed(seed):
 
 
 
-def execute_training(
+def main(
     channels=[0, 3],
     generated_channels=[0],
     img_w=64,
@@ -343,14 +335,36 @@ def execute_training(
     freeze_base=True,
 ):
     """
-    Função de execução de treinamento com ResNet50.
+    Executar treinamento da ResNet50 com Transfer Learning
     
     Parâmetros:
     -----------
-    freeze_base : bool
-        Se True, usa Transfer Learning (apenas head é treinado)
-        Se False, usa Fine-tuning (toda rede é treinada)
+    channels : list, default=[0, 3]
+        Canais de entrada
+    generated_channels : list, default=[0]
+        Canais gerados
+    img_w : int, default=64
+        Largura da imagem
+    batch : int, default=8
+        Batch size
+    learning_rate : float, default=5e-5
+        Learning rate
+    epochs : int, default=500
+        Número de epochs
+    sample_pct : float, default=1.0
+        Percentual de dados a usar
+    seed : int, default=None
+        Seed para reproducibilidade
+    patience : int, default=30
+        Patience para early stopping
+    l2_regularizer : float, default=1e-5
+        Fator de regularização L2
+    force : bool, default=True
+        Reprocessar dados
+    freeze_base : bool, default=True
+        Congelar pesos da ResNet50 (Transfer Learning)
     """
+    
     if seed is not None: 
         set_seed(seed)
 
@@ -368,86 +382,6 @@ def execute_training(
 
     save_model(model, result_path_folder)
     save_history(history, result_path_folder)
-
-
-def main(
-    channels=[0, 3],
-    batch=8,
-    learning_rate=5e-5,
-    epochs=100,
-    seed=None,
-    patience=30,
-    freeze_base=True,
-    force=True,
-):
-    """
-    Executar treinamento da ResNet50 com Transfer Learning
-    
-    Parâmetros:
-    -----------
-    channels : list, default=[0, 3]
-        Canais de entrada
-    batch : int, default=8
-        Batch size
-    learning_rate : float, default=5e-5
-        Learning rate
-    epochs : int, default=100
-        Número de epochs
-    seed : int, default=42
-        Seed para reproducibilidade
-    patience : int, default=30
-        Patience para early stopping
-    freeze_base : bool, default=True
-        Congelar pesos da ResNet50 (Transfer Learning)
-    force : bool, default=True
-        Reprocessar dados
-    """
-    
-    # Exibir configuração
-    print("\n" + "="*70)
-    print("🚀 INICIANDO TREINAMENTO - ResNet50 Transfer Learning")
-    print("="*70)
-    print(f"\n📊 Configuração:")
-    print(f"   Canais: {channels}")
-    print(f"   Batch size: {batch}")
-    print(f"   Learning rate: {learning_rate}")
-    print(f"   Epochs: {epochs}")
-    print(f"   Seed: {seed}")
-    print(f"   Early stopping patience: {patience}")
-    print(f"   Congelar ResNet: {freeze_base}")
-    print(f"   Diretório de resultado: {result_path_folder}")
-    print("\n" + "="*70 + "\n")
-    
-    # Executar treinamento
-    try:
-        execute_training(
-            channels=channels,
-            generated_channels=[0],
-            img_w=64,
-            batch=batch,
-            learning_rate=learning_rate,
-            epochs=epochs,
-            sample_pct=1.0,
-            seed=seed,
-            patience=patience,
-            l2_regularizer=1e-5,
-            force=force,
-            freeze_base=freeze_base,
-        )
-        
-        print("\n" + "="*70)
-        print("✅ TREINAMENTO FINALIZADO COM SUCESSO!")
-        print("="*70)
-        print(f"\n📁 Modelo salvo em: {result_path_folder}/model.keras")
-        print(f"📊 Histórico salvo em: {result_path_folder}/history.pkl")
-        print("\n")
-        
-    except Exception as e:
-        print("\n" + "="*70)
-        print("❌ ERRO DURANTE O TREINAMENTO")
-        print("="*70)
-        print(f"\n❌ Erro: {str(e)}\n")
-        raise
 
 
 if __name__ == "__main__":
