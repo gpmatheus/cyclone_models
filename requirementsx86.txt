@@ -14,10 +14,6 @@ dask==2026.1.2
 numexpr==2.14.1
 blosc2==3.11.1
 
-# TensorFlow macOS acceleration
-tensorflow-macos==2.16.2
-tensorflow-metal==1.2.0
-
 # API / Backend
 bentoml==1.4.35
 uvicorn==0.41.0
@@ -47,6 +43,5 @@ protobuf==4.25.8
 grpcio==1.76.0
 tensorboard==2.16.2
 
-# Optional performance / monitoring
-nvidia-ml-py==13.590.48
+# Optional monitoring
 psutil==7.1.3
