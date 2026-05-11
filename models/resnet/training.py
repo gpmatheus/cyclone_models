@@ -185,7 +185,8 @@ def build_model_with_resnet(input_shape, lr, l2_regularizer=1e-5, freeze_base=Tr
     base_model = keras.applications.ResNet50(
         weights='imagenet',
         include_top=False,
-        input_shape=(224, 224, 3)
+        input_shape=(224, 224, 3),
+        pooling=None,
     )
     
     # ========== CONGELA PESOS DA BASE (TRANSFER LEARNING) ==========
