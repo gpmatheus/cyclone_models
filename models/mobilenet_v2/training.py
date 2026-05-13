@@ -185,7 +185,8 @@ def build_model_with_mobilenet_v2(input_shape, lr, l2_regularizer=1e-5, freeze_b
     base_model = keras.applications.MobileNetV2(
         weights='imagenet',
         include_top=False,
-        input_shape=(224, 224, 3)
+        input_shape=(224, 224, 3),
+        pooling=None,
     )
     
     # ========== CONGELA PESOS DA BASE (TRANSFER LEARNING) ==========
