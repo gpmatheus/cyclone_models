@@ -36,8 +36,8 @@ def compute_optical_flow(img1, img2):
 # open images
 
 with h5py.File("data/TCIR-ATLN_EPAC_WPAC.h5", mode="r") as file:
-    image1 = file['matrix'][100, :, :, 1]
-    image2 = file['matrix'][101, :, :, 1]
+    image1 = file['matrix'][1000, :, :, 1]
+    image2 = file['matrix'][1001, :, :, 1]
 
 print(image1.shape)
 print(image2.shape)
@@ -68,14 +68,17 @@ y_origins = np.repeat(np.arange(v.shape[0]), v.shape[1]).reshape(image1.shape)
 
 # axes[2].imshow(v, interpolation="nearest")
 
-fig, axes = plt.subplots(1, 3, figsize=(10, 5))
+fig, axes = plt.subplots(1, 3, figsize=(15, 5))
 
 axes[0].imshow(image1, interpolation="nearest")
+axes[0].set_aspect('equal')
 
 axes[1].imshow(image2, interpolation="nearest")
+axes[1].set_aspect('equal')
 
 # desenha setas
 axes[2].quiver(x_origins, y_origins, u, v, angles="xy", scale_units="xy", scale=1)
+axes[2].set_aspect('equal')
 
 # magnitudes = np.sqrt(u ** 2 + v ** 2)
 # axes[2].imshow(magnitudes, interpolation="nearest")
