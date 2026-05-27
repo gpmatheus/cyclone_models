@@ -150,24 +150,9 @@ class SHAPRegressionTTA:
             pred_avg : (B,) float32 — predição média sobre rotações
         """
         B, H, W, C = images.shape
-        shap_acc = np.zeros((B, H, W, C), dtype=np.float32)
-        pred_acc = np.zeros(B, dtype=np.float32)
-
-        for angle_deg in self.angles:
-            # 1. Rotar todo o batch
-            imgs_rot = self._rotate_batch_numpy(images, angle_deg, H)
-
-            # 2. Predições e SHAP em batch
-            preds = self.model.predict(imgs_rot, verbose=0)[:, 0]
-            sv = self._extract_shap(self.explainer.shap_values(imgs_rot))  # (B,H,W,C)
-
-            pred_acc += preds
-
-            # 3. Contra-rotacionar SHAP values
-            sv_back = self._counter_rotate_shap_batch(sv, angle_deg, H)
-            shap_acc += sv_back
-
-        return shap_acc / self.rotations, pred_acc / self.rotations
+        preds = self.model.predict(images, verbose=0)[:, 0]
+        sv = self._extract_shap(self.explainer.shap_values(images))  # (B,H,W,C)
+        return sv, preds
 
     # ------------------------------------------------------------------
     def process_all(
@@ -175,25 +160,23 @@ class SHAPRegressionTTA:
         images: np.ndarray,
         batch_size: int = 8,
     ) -> Tuple[np.ndarray, np.ndarray]:
-        """Processa todas as imagens em mini-batches com progresso."""
+        """Processa todas as imagens individualmente com progresso."""
         N = len(images)
-        n_batches = (N + batch_size - 1) // batch_size
         all_sv, all_pred = [], []
 
-        print(f"\n  Calculando SHAP para {N} amostras | batch={batch_size} | R={self.rotations}")
-        print(f"  Total de chamadas SHAP: {n_batches * self.rotations}")
+        print(f"\n  Calculando SHAP para {N} amostras | R={self.rotations}")
+        print(f"  Total de chamadas SHAP: {N * self.rotations}")
 
-        for b in range(n_batches):
-            s = b * batch_size
-            e = min(s + batch_size, N)
-            sv, pred = self.process_batch(images[s:e])
+        for i in range(N):
+            sv, pred = self.process_batch(images[i:i+1])
             all_sv.append(sv)
             all_pred.append(pred)
-            pct = (b + 1) / n_batches * 100
-            print(f"  [{b+1:4d}/{n_batches}]  amostras {s:5d}–{e-1:5d}  {pct:5.1f}%", flush=True)
+            pct = (i + 1) / N * 100
+            print(f"  [{i+1:5d}/{N}]  {pct:5.1f}%", flush=True)
 
         return np.concatenate(all_sv), np.concatenate(all_pred)
 
+    
 
 # ============================================================================
 # Visualizações
