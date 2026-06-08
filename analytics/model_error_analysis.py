@@ -1,12 +1,12 @@
 """
-Model Error Analysis Script
-Loads a trained model and calculates prediction errors on test dataset.
-Generates frequency distribution plots of absolute errors.
+Script de Análise de Erro do Modelo
+Carrega um modelo treinado e calcula erros de predição no conjunto de testes.
+Gera gráficos de distribuição de frequência de erros absolutos.
 
-Environment variables:
-  MODEL_PATH: Path to the trained model file (.keras or .h5)
-  DATASET_PATH: Path to the test dataset (HDF5 file)
-  OUTPUT_PATH: Directory to save results
+Variáveis de ambiente:
+  MODEL_PATH: Caminho para o arquivo do modelo treinado (.keras ou .h5)
+  DATASET_PATH: Caminho para o conjunto de testes (arquivo HDF5)
+  OUTPUT_PATH: Diretório para salvar resultados
 """
 
 import os
@@ -35,7 +35,7 @@ try:
     KERAS_AVAILABLE = True
 except ImportError:
     KERAS_AVAILABLE = False
-    print("⚠️  TensorFlow/Keras not available. Install with: pip install tensorflow")
+    print("⚠️  TensorFlow/Keras não disponível. Instale com: pip install tensorflow")
 
 
 def load_model(model_path):
@@ -76,8 +76,8 @@ def load_test_dataset(dataset_path, crop_w):
 
 
 def calculate_errors(model, X, y):
-    """Calculate prediction errors for each sample."""
-    print(f"\nMaking predictions on {len(X)} samples...")
+    """Calcula erros de predição para cada amostra."""
+    print(f"\nFazendo predições em {len(X)} amostras...")
     
     try:
         # Make predictions
@@ -87,9 +87,9 @@ def calculate_errors(model, X, y):
         if len(predictions.shape) > 1:
             predictions = predictions[:, 0]
         
-        print(f"✓ Predictions completed")
-        print(f"  Predictions shape: {predictions.shape}")
-        print(f"  Predictions range: [{np.min(predictions):.4f}, {np.max(predictions):.4f}]")
+        print(f"✓ Predições concluídas")
+        print(f"  Forma das predições: {predictions.shape}")
+        print(f"  Intervalo das predições: [{np.min(predictions):.4f}, {np.max(predictions):.4f}]")
         
         if y is not None:
             # Calculate raw errors
@@ -98,74 +98,63 @@ def calculate_errors(model, X, y):
             # Calculate absolute errors
             abs_errors = np.abs(raw_errors)
             
-            print(f"\n✓ Errors calculated")
-            print(f"  Raw errors - mean: {np.mean(raw_errors):.4f}, std: {np.std(raw_errors):.4f}")
-            print(f"  Absolute errors - mean: {np.mean(abs_errors):.4f}, std: {np.std(abs_errors):.4f}")
-            print(f"  Absolute errors - min: {np.min(abs_errors):.4f}, max: {np.max(abs_errors):.4f}")
+            print(f"\n✓ Erros calculados")
+            print(f"  Erros brutos - média: {np.mean(raw_errors):.4f}, desvio: {np.std(raw_errors):.4f}")
+            print(f"  Erros absolutos - média: {np.mean(abs_errors):.4f}, desvio: {np.std(abs_errors):.4f}")
+            print(f"  Erros absolutos - mín: {np.min(abs_errors):.4f}, máx: {np.max(abs_errors):.4f}")
             
             return predictions, raw_errors, abs_errors
         else:
             return predictions, None, None
             
     except Exception as e:
-        raise RuntimeError(f"Failed to make predictions: {e}")
+        raise RuntimeError(f"Falha ao fazer predições: {e}")
 
 
 def create_error_distribution_plot(abs_errors, output_path):
-    """Create frequency distribution plot of absolute errors."""
-    print(f"\nCreating error distribution plot...")
+    """Cria gráfico de distribuição de frequência de erros absolutos."""
+    print(f"\nGerando gráfico de distribuição de frequência...")
     
-    # Create figure
-    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+    # Criar figura
+    fig, ax = plt.subplots(figsize=(10, 6))
     
-    # Histogram
-    ax1 = axes[0]
-    n, bins, patches = ax1.hist(abs_errors, bins=50, edgecolor='black', alpha=0.7, color='steelblue')
-    ax1.set_xlabel('Absolute Error', fontsize=11, fontweight='bold')
-    ax1.set_ylabel('Frequency', fontsize=11, fontweight='bold')
-    ax1.set_title('Distribution of Absolute Prediction Errors', fontsize=12, fontweight='bold')
-    ax1.grid(axis='y', alpha=0.3)
+    # Histograma
+    n, bins, patches = ax.hist(abs_errors, bins=50, edgecolor='black', alpha=0.7, color='steelblue')
+    ax.set_xlabel('Erro Absoluto', fontsize=11, fontweight='bold')
+    ax.set_ylabel('Frequência', fontsize=11, fontweight='bold')
+    ax.set_title('Distribuição de Frequência de Erros Absolutos de Predição', fontsize=12, fontweight='bold')
+    ax.grid(axis='y', alpha=0.3)
     
-    # Add mean line
+    # Adicionar linha da média
     mean_val = np.mean(abs_errors)
-    ax1.axvline(mean_val, color='red', linestyle='--', linewidth=2.5, label=f'Mean: {mean_val:.4f}')
-    ax1.legend(loc='upper right', fontsize=10)
+    ax.axvline(mean_val, color='red', linestyle='--', linewidth=2.5, label=f'Média: {mean_val:.4f}')
+    ax.legend(loc='upper left', fontsize=10)
     
-    # Add statistics text
+    # Adicionar caixa de estatísticas
     stats_text = (
-        f"Mean: {np.mean(abs_errors):.4f}\n"
-        f"Median: {np.median(abs_errors):.4f}\n"
-        f"Std Dev: {np.std(abs_errors):.4f}\n"
-        f"Min: {np.min(abs_errors):.4f}\n"
-        f"Max: {np.max(abs_errors):.4f}\n"
-        f"Count: {len(abs_errors)}"
+        f"Média: {np.mean(abs_errors):.4f}\n"
+        f"Mediana: {np.median(abs_errors):.4f}\n"
+        f"Desvio Padrão: {np.std(abs_errors):.4f}\n"
+        f"Mínimo: {np.min(abs_errors):.4f}\n"
+        f"Máximo: {np.max(abs_errors):.4f}\n"
+        f"Total: {len(abs_errors)}"
     )
-    ax1.text(0.98, 0.97, stats_text, transform=ax1.transAxes, 
+    ax.text(0.98, 0.97, stats_text, transform=ax.transAxes, 
              verticalalignment='top', horizontalalignment='right',
              bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8),
              fontfamily='monospace', fontsize=9)
     
-    # Cumulative distribution
-    ax2 = axes[1]
-    sorted_errors = np.sort(abs_errors)
-    cumulative = np.arange(1, len(sorted_errors) + 1) / len(sorted_errors)
-    ax2.plot(sorted_errors, cumulative, linewidth=2, color='steelblue')
-    ax2.set_xlabel('Absolute Error', fontsize=11, fontweight='bold')
-    ax2.set_ylabel('Cumulative Probability', fontsize=11, fontweight='bold')
-    ax2.set_title('Cumulative Distribution of Absolute Errors', fontsize=12, fontweight='bold')
-    ax2.grid(True, alpha=0.3)
-    
     plt.tight_layout()
     
-    # Save figure
+    # Salvar figura
     output_file = Path(output_path) / "error_distribution.png"
     plt.savefig(output_file, dpi=150, bbox_inches='tight')
-    print(f"✓ Plot saved to {output_file}")
+    print(f"✓ Gráfico salvo em {output_file}")
     plt.close()
 
 
 def save_error_statistics(abs_errors, raw_errors, output_path):
-    """Save error statistics as JSON."""
+    """Salva estatísticas de erros como JSON."""
     stats = {
         "absolute_errors": {
             "mean": float(np.mean(abs_errors)),
@@ -196,25 +185,25 @@ def save_error_statistics(abs_errors, raw_errors, output_path):
     output_file = Path(output_path) / "error_statistics.json"
     with open(output_file, 'w') as f:
         json.dump(stats, f, indent=2)
-    print(f"✓ Statistics saved to {output_file}")
+    print(f"✓ Estatísticas salvas em {output_file}")
 
 
 def save_error_csv(abs_errors, raw_errors, output_path):
-    """Save errors to CSV file for further analysis."""
+    """Salva erros em arquivo CSV para análise adicional."""
     import csv
     
     output_file = Path(output_path) / "errors.csv"
     with open(output_file, 'w', newline='') as f:
         writer = csv.writer(f)
-        writer.writerow(['Sample_ID', 'Raw_Error', 'Absolute_Error'])
+        writer.writerow(['ID_Amostra', 'Erro_Bruto', 'Erro_Absoluto'])
         for idx, (raw_err, abs_err) in enumerate(zip(raw_errors, abs_errors)):
             writer.writerow([idx, raw_err, abs_err])
     
-    print(f"✓ Errors saved to {output_file}")
+    print(f"✓ Erros salvos em {output_file}")
 
 
 def main(crop_w=64):
-    """Main execution."""
+    """Execução principal."""
     try:
         
         # Load model
@@ -224,7 +213,7 @@ def main(crop_w=64):
         X, y = load_test_dataset(DATASET_PATH, crop_w)
         
         if y is None:
-            print("❌ Cannot proceed without target variable")
+            print("❌ Não é possível prosseguir sem a variável alvo")
             return
         
         # Calculate errors
@@ -240,11 +229,11 @@ def main(crop_w=64):
         save_error_csv(abs_errors, raw_errors, OUTPUT_PATH)
         
         print(f"\n{'='*70}")
-        print("✓ Analysis completed successfully!")
+        print("✓ Análise concluída com sucesso!")
         print(f"{'='*70}\n")
         
     except Exception as e:
-        print(f"\n❌ Error: {e}\n")
+        print(f"\n❌ Erro: {e}\n")
         import traceback
         traceback.print_exc()
         sys.exit(1)
