@@ -205,6 +205,7 @@ class PredictionVisualizer:
             print(f"Salvando figura em {save_path}...")
             plt.savefig(save_path, dpi=300, bbox_inches='tight')
         
+        plt.savefig("resultado.png", dpi=300, bbox_inches='tight')
         plt.show()
         
         # Imprime métricas
@@ -236,18 +237,17 @@ class PredictionVisualizer:
         return predictions
 
 
-def main():
+def main(img_width=64):
     """Função principal com configurações do experimento."""
     
     # ==================== CONFIGURAÇÕES ====================
     
     # Caminhos
-    model_path = os.getenv("MODEL_PATH") or "result/tcc_II/model.keras"
+    model_path = os.getenv("MODEL_PATH") or "model.keras"
     test_data_path = os.getenv("PREPROCESSED_TEST_PATH") or "data/preprocessed/test.h5"
     save_plot_path = os.getenv("SAVE_PLOT_PATH") or "plot/results_plot.png"  # Opcional: descomentar para salvar
     
     # Parâmetros do modelo
-    img_width = 64
     rotations = 10
     channels = [0, 3]
     
@@ -268,4 +268,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    main(img_width=224)
