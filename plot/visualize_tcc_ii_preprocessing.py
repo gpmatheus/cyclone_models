@@ -14,7 +14,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 
-def load_sample_images(dataset_path: str, n_samples: int = 4) -> np.ndarray:
+def load_sample_images(dataset_path: str, n_samples: int = 3) -> np.ndarray:
     """
     Load n_samples consecutive images from HDF5 dataset.
     
@@ -31,7 +31,11 @@ def load_sample_images(dataset_path: str, n_samples: int = 4) -> np.ndarray:
         imgs_len = images.shape[0]
 
         import random
-        idx = random.randint(5, imgs_len - 5)
+
+        # idx = random.randint(4, imgs_len - 4)
+        idx = 26524
+
+        print(f'idx: {idx}')
         
         return images[idx:idx + n_samples, :, :, :]
 
@@ -64,14 +68,18 @@ def create_visualization(images: np.ndarray, output_dir: str = "result/plot"):
     dir2.mkdir(exist_ok=True)
     dir3.mkdir(exist_ok=True)
     
-    # Extract 4 consecutive images
-    if len(images) < 4:
+    # Extract 3 consecutive images
+    if len(images) < 3:
         raise ValueError(f"Need at least 4 images, got {len(images)}")
     
-    img_n_minus_2 = images[0]
-    img_n_minus_1 = images[1]
+    # img_n_minus_2 = images[0]
+    # img_n_minus_1 = images[1]
+    # img_n = images[2]
+    # img_n_plus_1 = images[3]
+
     img_n = images[2]
-    img_n_plus_1 = images[3]
+    img_n_minus_1 = images[1]
+    img_n_minus_2 = images[0]
     
     # Handle multi-channel: take first channel only
     if len(img_n_minus_2.shape) == 3:
@@ -80,8 +88,6 @@ def create_visualization(images: np.ndarray, output_dir: str = "result/plot"):
         img_n_minus_1 = img_n_minus_1[:, :, 0]
     if len(img_n.shape) == 3:
         img_n = img_n[:, :, 0]
-    if len(img_n_plus_1.shape) == 3:
-        img_n_plus_1 = img_n_plus_1[:, :, 0]
     
     # Calculate intermediate differences
     diff_n_minus_1 = img_n_minus_1 - img_n_minus_2  # (I^n-1 - I^n-2)
@@ -95,14 +101,13 @@ def create_visualization(images: np.ndarray, output_dir: str = "result/plot"):
         (img_n_minus_2, "I_n-2"),
         (img_n_minus_1, "I_n-1"),
         (img_n, "I_n"),
-        (img_n_plus_1, "I_n+1"),
     ]
     
     for img, label in imgs_to_plot:
         fig = plt.figure(figsize=(6, 5))
         ax = fig.add_subplot(111)
         ax.imshow(normalize_for_display(img), cmap='viridis')
-        ax.set_title(label, fontsize=12, fontweight='bold')
+        # ax.set_title(label, fontsize=12, fontweight='bold')
         ax.axis('off')
         
         path = str(dir1 / f"{label}.png")
@@ -120,7 +125,7 @@ def create_visualization(images: np.ndarray, output_dir: str = "result/plot"):
         fig = plt.figure(figsize=(6, 5))
         ax = fig.add_subplot(111)
         ax.imshow(normalize_for_display(img), cmap='RdBu_r')
-        ax.set_title(label.replace('_', ' '), fontsize=12, fontweight='bold')
+        # ax.set_title(label.replace('_', ' '), fontsize=12, fontweight='bold')
         ax.axis('off')
         
         path = str(dir2 / f"{label}.png")
@@ -132,7 +137,7 @@ def create_visualization(images: np.ndarray, output_dir: str = "result/plot"):
     fig = plt.figure(figsize=(6, 5))
     ax = fig.add_subplot(111)
     ax.imshow(normalize_for_display(final_diff), cmap='hot')
-    ax.set_title("Final Result", fontsize=12, fontweight='bold')
+    # ax.set_title("Final Result", fontsize=12, fontweight='bold')
     ax.axis('off')
     
     path = str(dir3 / "result.png")
@@ -141,25 +146,25 @@ def create_visualization(images: np.ndarray, output_dir: str = "result/plot"):
     plt.close()
     
     # Print statistics
-    print("\n" + "="*70)
-    print("  TCC-II PREPROCESSING STATISTICS")
-    print("="*70)
-    print(f"\nInput Images Shape: {img_n.shape}")
-    print(f"Data Type: {img_n.dtype}")
-    print(f"\nOriginal Image Statistics:")
-    print(f"  I^(n-2): min={np.nanmin(img_n_minus_2):.4f}, max={np.nanmax(img_n_minus_2):.4f}, mean={np.nanmean(img_n_minus_2):.4f}")
-    print(f"  I^(n-1): min={np.nanmin(img_n_minus_1):.4f}, max={np.nanmax(img_n_minus_1):.4f}, mean={np.nanmean(img_n_minus_1):.4f}")
-    print(f"  I^(n):   min={np.nanmin(img_n):.4f}, max={np.nanmax(img_n):.4f}, mean={np.nanmean(img_n):.4f}")
-    print(f"  I^(n+1): min={np.nanmin(img_n_plus_1):.4f}, max={np.nanmax(img_n_plus_1):.4f}, mean={np.nanmean(img_n_plus_1):.4f}")
+    # print("\n" + "="*70)
+    # print("  TCC-II PREPROCESSING STATISTICS")
+    # print("="*70)
+    # print(f"\nInput Images Shape: {img_n.shape}")
+    # print(f"Data Type: {img_n.dtype}")
+    # print(f"\nOriginal Image Statistics:")
+    # print(f"  I^(n-2): min={np.nanmin(img_n_minus_2):.4f}, max={np.nanmax(img_n_minus_2):.4f}, mean={np.nanmean(img_n_minus_2):.4f}")
+    # print(f"  I^(n-1): min={np.nanmin(img_n_minus_1):.4f}, max={np.nanmax(img_n_minus_1):.4f}, mean={np.nanmean(img_n_minus_1):.4f}")
+    # print(f"  I^(n):   min={np.nanmin(img_n):.4f}, max={np.nanmax(img_n):.4f}, mean={np.nanmean(img_n):.4f}")
+    # print(f"  I^(n+1): min={np.nanmin(img_n_plus_1):.4f}, max={np.nanmax(img_n_plus_1):.4f}, mean={np.nanmean(img_n_plus_1):.4f}")
     
-    print(f"\nFirst Level Differences:")
-    print(f"  Diff1a (I^(n-1) - I^(n-2)): min={np.nanmin(diff_n_minus_1):.4f}, max={np.nanmax(diff_n_minus_1):.4f}")
-    print(f"  Diff1b (I^(n) - I^(n-1)):   min={np.nanmin(diff_n):.4f}, max={np.nanmax(diff_n):.4f}")
+    # print(f"\nFirst Level Differences:")
+    # print(f"  Diff1a (I^(n-1) - I^(n-2)): min={np.nanmin(diff_n_minus_1):.4f}, max={np.nanmax(diff_n_minus_1):.4f}")
+    # print(f"  Diff1b (I^(n) - I^(n-1)):   min={np.nanmin(diff_n):.4f}, max={np.nanmax(diff_n):.4f}")
     
-    print(f"\nFinal Second-Order Difference:")
-    print(f"  Δ²I: min={np.nanmin(final_diff):.4f}, max={np.nanmax(final_diff):.4f}, mean={np.nanmean(final_diff):.4f}")
-    print(f"      (Measures motion acceleration/deceleration)")
-    print("="*70 + "\n")
+    # print(f"\nFinal Second-Order Difference:")
+    # print(f"  Δ²I: min={np.nanmin(final_diff):.4f}, max={np.nanmax(final_diff):.4f}, mean={np.nanmean(final_diff):.4f}")
+    # print(f"      (Measures motion acceleration/deceleration)")
+    # print("="*70 + "\n")
 
 
 def main():

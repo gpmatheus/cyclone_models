@@ -53,13 +53,12 @@ INPUT_SIZE   = 64
 # ============================================================================
 
 def center_crop(images: np.ndarray, size: int = INPUT_SIZE) -> np.ndarray:
-    """Crop centralizado (N, H, W, C) → (N, size, size, C)."""
+    """Crop ou padding centralizado (N, H, W, C) → (N, size, size, C) usando TensorFlow."""
     h, w = images.shape[1], images.shape[2]
     if h == size and w == size:
         return images
-    sh, sw = (h - size) // 2, (w - size) // 2
-    print(f"  Center-crop: {images.shape[1:3]} → ({size}, {size})")
-    return images[:, sh:sh + size, sw:sw + size, :]
+    print(f"  Center-crop/pad: {images.shape[1:3]} → ({size}, {size})")
+    return tf.image.resize_with_crop_or_pad(images, size, size).numpy()
 
 
 def rotate_image_tf(image: tf.Tensor, angle_deg: float, output_size: int) -> tf.Tensor:
@@ -107,11 +106,12 @@ class SHAPRegressionTTA:
     SHAP de N × R para (N/batch_size) × R.
     """
 
-    def __init__(self, model: keras.Model, background: np.ndarray, rotations: int = 10):
+    def __init__(self, model: keras.Model, background: np.ndarray, rotations: int = 10, use_tta: bool = False):
         self.model     = model
-        self.rotations = rotations
-        self.angles    = [i * 360.0 / rotations for i in range(rotations)]
-        print(f"  Inicializando GradientExplainer  bg={len(background)}  rotações={rotations}")
+        self.rotations = rotations if use_tta else 1
+        self.use_tta   = use_tta
+        self.angles    = [i * 360.0 / rotations for i in range(rotations)] if use_tta else [0.0]
+        print(f"  Inicializando GradientExplainer  bg={len(background)}  use_tta={use_tta}  rotações={self.rotations}")
         self.explainer = shap.GradientExplainer(model, background)
 
     # ------------------------------------------------------------------
@@ -143,16 +143,45 @@ class SHAPRegressionTTA:
     # ------------------------------------------------------------------
     def process_batch(self, images: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """
-        Processa batch (B, H, W, C) com TTA completo.
+        Processa batch (B, H, W, C) com TTA completo (Rotation Blending) se ativo.
 
         Returns:
             shap_avg : (B, H, W, C) float32 — SHAP médio sobre rotações
             pred_avg : (B,) float32 — predição média sobre rotações
         """
         B, H, W, C = images.shape
-        preds = self.model.predict(images, verbose=0)[:, 0]
-        sv = self._extract_shap(self.explainer.shap_values(images))  # (B,H,W,C)
-        return sv, preds
+        
+        # Se TTA estiver desativado, roda o SHAP padrão diretamente (muito mais rápido)
+        if not self.use_tta:
+            preds = self.model.predict(images, verbose=0)[:, 0]
+            sv = self._extract_shap(self.explainer.shap_values(images))
+            return sv, preds
+            
+        # Se TTA estiver ativado, roda o loop de Rotation Blending
+        shap_sum = np.zeros((B, H, W, C), dtype=np.float32)
+        pred_sum = np.zeros((B,), dtype=np.float32)
+        
+        for angle in self.angles:
+            if angle == 0.0:
+                rotated_imgs = images
+            else:
+                rotated_imgs = self._rotate_batch_numpy(images, angle, size=H)
+            
+            preds_rot = self.model.predict(rotated_imgs, verbose=0)[:, 0]
+            sv_rot = self._extract_shap(self.explainer.shap_values(rotated_imgs))
+            
+            if angle == 0.0:
+                sv_counter_rot = sv_rot
+            else:
+                sv_counter_rot = self._counter_rotate_shap_batch(sv_rot, angle, size=H)
+            
+            shap_sum += sv_counter_rot
+            pred_sum += preds_rot
+            
+        shap_avg = shap_sum / len(self.angles)
+        pred_avg = pred_sum / len(self.angles)
+        
+        return shap_avg, pred_avg
 
     # ------------------------------------------------------------------
     def process_all(
@@ -182,13 +211,13 @@ class SHAPRegressionTTA:
 # Visualizações
 # ============================================================================
 
-DARK_BG  = "#1a1a2e"
-DARK_AX  = "#16213e"
-WHITE    = "white"
+# DARK_BG  = "#1a1a2e"
+# DARK_AX  = "#16213e"
+# WHITE    = "white"
 
 
 def _dark_fig(*args, **kwargs):
-    fig = plt.figure(*args, facecolor=DARK_BG, **kwargs)
+    fig = plt.figure(*args, **kwargs)
     return fig
 
 
@@ -199,25 +228,33 @@ def _save(fig, path: str):
 
 
 # ------------------------------------------------------------------
-def plot_global_mean(shap_maps: np.ndarray, output_dir: str) -> None:
+def plot_global_mean(shap_maps: np.ndarray, output_dir: str, crop_plot: Optional[int] = None) -> None:
     """Média global de |SHAP| por canal — revela padrões estruturais."""
     C = shap_maps.shape[-1]
     mean_abs = np.mean(np.abs(shap_maps), axis=0)  # (H, W, C)
+    
+    # Aplicar crop opcional somente para visualização
+    if crop_plot is not None:
+        H, W = mean_abs.shape[:2]
+        sh = (H - crop_plot) // 2
+        sw = (W - crop_plot) // 2
+        if sh > 0 and sw > 0:
+            mean_abs = mean_abs[sh:sh + crop_plot, sw:sw + crop_plot, :]
 
-    fig, axes = plt.subplots(1, C + 1, figsize=(5 * (C + 1), 4.5), facecolor=DARK_BG)
+    fig, axes = plt.subplots(1, C + 1, figsize=(5 * (C + 1), 4.5))
     maps    = [mean_abs[..., c] for c in range(C)] + [mean_abs.sum(-1)]
     titles  = [f"Canal {c}" for c in range(C)] + ["Soma canais"]
 
     for ax, title, m in zip(axes, titles, maps):
-        ax.set_facecolor(DARK_AX)
+        # ax.set_facecolor(DARK_AX)
         im = ax.imshow(m, cmap="hot", interpolation="bilinear")
-        ax.set_title(title, color=WHITE, fontsize=10)
+        ax.set_title(title, fontsize=10)
         ax.axis("off")
         cb = plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-        plt.setp(cb.ax.yaxis.get_ticklabels(), color=WHITE)
+        plt.setp(cb.ax.yaxis.get_ticklabels())
 
     fig.suptitle("SHAP — Importância Média |SHAP| (conjunto de teste completo)",
-                 color=WHITE, fontsize=13)
+                 fontsize=13)
     plt.tight_layout()
     _save(fig, os.path.join(output_dir, "shap_global_mean.png"))
 
@@ -226,46 +263,79 @@ def plot_global_mean(shap_maps: np.ndarray, output_dir: str) -> None:
 def plot_sample_grid(
     images: np.ndarray, shap_maps: np.ndarray, predictions: np.ndarray,
     labels: Optional[pd.DataFrame], output_dir: str,
-    n_samples: int = 12, seed: int = 42,
+    crop_plot: Optional[int] = None,
 ) -> None:
-    """Grade: imagem | SHAP signed overlay | |SHAP| acumulado."""
-    rng = np.random.default_rng(seed)
-    idx = rng.choice(len(images), min(n_samples, len(images)), replace=False)
+    """Grade com 3 amostras representativas: Vmax baixo, médio e alto."""
+    
+    # Selecionar 3 amostras representativas baseadas no Vmax real (ou predito)
+    if labels is not None and "Vmax" in labels.columns:
+        vmax_values = labels["Vmax"].values
+    else:
+        vmax_values = predictions
+        
+    # Índices das amostras com velocidade baixa (25° percentil),
+    # média (mediana) e alta (75° percentil)
+    p25  = np.percentile(vmax_values, 25)
+    p50  = np.percentile(vmax_values, 50)
+    p75  = np.percentile(vmax_values, 75)
+    
+    idx_low  = int(np.argmin(np.abs(vmax_values - p25)))
+    idx_mid  = int(np.argmin(np.abs(vmax_values - p50)))
+    idx_high = int(np.argmin(np.abs(vmax_values - p75)))
+    
+    selected = [idx_low, idx_mid, idx_high]
+    row_labels = [
+        f"Baixa Intensidade (~{p25:.0f} kt)",
+        f"Intensidade Média (~{p50:.0f} kt)",
+        f"Alta Intensidade (~{p75:.0f} kt)",
+    ]
+    print(f"  Amostras selecionadas: baixa={idx_low} (~{p25:.0f} kt), "
+          f"média={idx_mid} (~{p50:.0f} kt), alta={idx_high} (~{p75:.0f} kt)")
 
-    fig, axes = plt.subplots(len(idx), 3, figsize=(12, 3.5 * len(idx)), facecolor=DARK_BG)
-    if len(idx) == 1:
-        axes = axes[np.newaxis, :]
+    fig, axes = plt.subplots(3, 3, figsize=(12, 10.5))
 
     for col, ttl in enumerate(["Imagem (Ch 0)", "SHAP Overlay (signed)", "|SHAP| soma canais"]):
-        axes[0, col].set_title(ttl, color=WHITE, fontsize=10, pad=8)
+        axes[0, col].set_title(ttl, fontsize=10, pad=8)
 
-    for row, i in enumerate(idx):
-        img  = normalize_display(images[i])
-        sv   = shap_maps[i]
+    for row, (i, rlabel) in enumerate(zip(selected, row_labels)):
+        img_raw = images[i]
+        sv      = shap_maps[i]
+        
+        # Aplicar crop visual opcional (não afeta o cálculo do SHAP)
+        if crop_plot is not None:
+            H, W = img_raw.shape[:2]
+            sh = (H - crop_plot) // 2
+            sw = (W - crop_plot) // 2
+            if sh > 0 and sw > 0:
+                img_raw = img_raw[sh:sh + crop_plot, sw:sw + crop_plot, :]
+                sv      = sv[sh:sh + crop_plot, sw:sw + crop_plot, :]
+        
+        img  = normalize_display(img_raw)
         sv_s = sv.sum(-1)  # signed sum
-        vmax = float(np.percentile(np.abs(sv_s), 99)) or 1e-6
+        vmax_color = float(np.percentile(np.abs(sv_s), 99)) or 1e-6
+        
         pred = predictions[i]
-        info = f"Pred {pred:.1f} kt"
+        info = f"{rlabel}\nPred {pred:.1f} kt"
         if labels is not None and "Vmax" in labels.columns:
             tv = labels["Vmax"].iloc[i]
-            info += f" | True {tv:.1f} kt | Err {abs(pred-tv):.1f}"
+            info += f" | True {tv:.1f} kt | Err {abs(pred - tv):.1f}"
 
         ax0, ax1, ax2 = axes[row]
         for ax in (ax0, ax1, ax2):
-            ax.set_facecolor(DARK_AX)
+            # ax.set_facecolor(DARK_AX)
             ax.axis("off")
 
         ax0.imshow(img[..., 0], cmap="gray")
-        ax0.set_ylabel(info, color=WHITE, fontsize=7, rotation=0, ha="right", va="center")
+        ax0.set_ylabel(info, fontsize=7, rotation=0, ha="right", va="center")
 
         ax1.imshow(img[..., 0], cmap="gray", alpha=0.55)
-        im1 = ax1.imshow(sv_s, cmap="seismic", vmin=-vmax, vmax=vmax, alpha=0.6)
+        im1 = ax1.imshow(sv_s, cmap="seismic", vmin=-vmax_color, vmax=vmax_color, alpha=0.6)
         plt.colorbar(im1, ax=ax1, fraction=0.046, pad=0.04)
 
-        im2 = ax2.imshow(np.abs(sv_s), cmap="hot", vmin=0, vmax=vmax)
+        im2 = ax2.imshow(np.abs(sv_s), cmap="hot", vmin=0, vmax=vmax_color)
         plt.colorbar(im2, ax=ax2, fraction=0.046, pad=0.04)
 
-    fig.suptitle("SHAP — Amostras com Rotation Blending TTA", color=WHITE, fontsize=13)
+    fig.suptitle("SHAP — Amostras por Intensidade de Velocidade (Baixa / Média / Alta)", fontsize=13)
     plt.tight_layout()
     _save(fig, os.path.join(output_dir, "shap_samples_grid.png"))
 
@@ -290,20 +360,20 @@ def plot_error_analysis(
 
     corr, pval = spearmanr(shap_mag, errors)
 
-    fig, axes = plt.subplots(1, 2, figsize=(13, 5), facecolor=DARK_BG)
-    for ax in axes:
-        ax.set_facecolor(DARK_AX)
+    fig, axes = plt.subplots(1, 2, figsize=(13, 5))
+    # for ax in axes:
+    #     ax.set_facecolor(DARK_AX)
 
     # — Scatter SHAP magnitude vs erro —
     ax1 = axes[0]
     sc = ax1.scatter(shap_mag, errors, c=true_v, cmap="plasma", alpha=0.35, s=8)
-    ax1.set_xlabel("|SHAP| médio", color=WHITE)
-    ax1.set_ylabel("|Erro| (kt)", color=WHITE)
-    ax1.set_title(f"Magnitude SHAP × Erro\nSpearman r={corr:.3f}  p={pval:.2e}", color=WHITE)
-    ax1.tick_params(colors=WHITE)
+    ax1.set_xlabel("|SHAP| médio")
+    ax1.set_ylabel("|Erro| (kt)")
+    ax1.set_title(f"Magnitude SHAP × Erro\nSpearman r={corr:.3f}  p={pval:.2e}")
+    # ax1.tick_params(colors=WHITE)
     cb = fig.colorbar(sc, ax=ax1)
-    cb.set_label("Vmax real (kt)", color=WHITE)
-    plt.setp(cb.ax.yaxis.get_ticklabels(), color=WHITE)
+    cb.set_label("Vmax real (kt)")
+    plt.setp(cb.ax.yaxis.get_ticklabels())
 
     # — Centro vs Borda por faixa de erro —
     ax2 = axes[1]
@@ -318,16 +388,16 @@ def plot_error_analysis(
 
     ax2.bar(bc - w/2, cm_, width=w, color="#4e9af1", label="Centro (25–75%)", alpha=0.85)
     ax2.bar(bc + w/2, bm_, width=w, color="#f1724e", label="Borda", alpha=0.85)
-    ax2.set_xlabel("|Erro| (kt)", color=WHITE)
-    ax2.set_ylabel("SHAP médio por região", color=WHITE)
-    ax2.set_title("Concentração SHAP: Centro vs. Borda", color=WHITE)
-    ax2.tick_params(colors=WHITE)
-    ax2.legend(facecolor=DARK_BG, labelcolor=WHITE)
+    ax2.set_xlabel("|Erro| (kt)")
+    ax2.set_ylabel("SHAP médio por região")
+    ax2.set_title("Concentração SHAP: Centro vs. Borda")
+    # ax2.tick_params(colors=WHITE)
+    # ax2.legend(facecolor=DARK_BG, labelcolor=WHITE)
 
     mae  = np.mean(errors)
     rmse = np.sqrt(np.mean(errors**2))
     fig.suptitle(f"SHAP — Análise de Erro  (MAE={mae:.2f} kt  RMSE={rmse:.2f} kt)",
-                 color=WHITE, fontsize=13)
+                 fontsize=13)
     plt.tight_layout()
     _save(fig, os.path.join(output_dir, "shap_error_analysis.png"))
 
@@ -344,9 +414,9 @@ def plot_prediction_scatter(
     mae    = np.mean(np.abs(errors))
     rmse   = np.sqrt(np.mean(errors**2))
 
-    fig, axes = plt.subplots(1, 2, figsize=(12, 5), facecolor=DARK_BG)
-    for ax in axes:
-        ax.set_facecolor(DARK_AX)
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+    # for ax in axes:
+    #     ax.set_facecolor(DARK_AX)
 
     ax1 = axes[0]
     sc = ax1.scatter(true_v, predictions, c=np.abs(errors), cmap="plasma",
@@ -354,22 +424,22 @@ def plot_prediction_scatter(
     # lims = [min(true_v.min(), predictions.min()), max(true_v.max(), predictions.max())]
     lims = [0, max(true_v.max(), predictions.max())]
     ax1.plot(lims, lims, "w--", alpha=0.6, lw=1.5, label="Perfeito")
-    ax1.set_xlabel("Vmax real (kt)", color=WHITE)
-    ax1.set_ylabel("Vmax predito (kt)", color=WHITE)
-    ax1.set_title(f"Real × Predito\nMAE={mae:.2f} kt | RMSE={rmse:.2f} kt", color=WHITE)
-    ax1.tick_params(colors=WHITE)
-    ax1.legend(facecolor=DARK_BG, labelcolor=WHITE)
+    ax1.set_xlabel("Vmax real (kt)")
+    ax1.set_ylabel("Vmax predito (kt)")
+    ax1.set_title(f"Real × Predito\nMAE={mae:.2f} kt | RMSE={rmse:.2f} kt")
+    # ax1.tick_params(colors=WHITE)
+    # ax1.legend(facecolor=DARK_BG, labelcolor=WHITE)
     cb = fig.colorbar(sc, ax=ax1)
-    cb.set_label("|Erro| (kt)", color=WHITE)
-    plt.setp(cb.ax.yaxis.get_ticklabels(), color=WHITE)
+    cb.set_label("|Erro| (kt)")
+    plt.setp(cb.ax.yaxis.get_ticklabels())
 
     ax2 = axes[1]
     ax2.hist(errors, bins=50, color="#7b2d8b", edgecolor="#b06ec7", alpha=0.85)
-    ax2.axvline(0, color=WHITE, ls="--", lw=1.5)
-    ax2.set_xlabel("Erro predito−real (kt)", color=WHITE)
-    ax2.set_ylabel("Frequência", color=WHITE)
-    ax2.set_title("Distribuição dos Erros", color=WHITE)
-    ax2.tick_params(colors=WHITE)
+    ax2.axvline(0, ls="--", lw=1.5)
+    ax2.set_xlabel("Erro predito−real (kt)")
+    ax2.set_ylabel("Frequência")
+    ax2.set_title("Distribuição dos Erros")
+    # ax2.tick_params(colors=WHITE)
 
     plt.tight_layout()
     _save(fig, os.path.join(output_dir, "shap_prediction_scatter.png"))
@@ -386,6 +456,8 @@ def main(
     limit:        Optional[int] = None,
     n_plot:       int = 12,
     seed:         int = 42,
+    use_tta:      bool = False,  # Altere para True para ativar o Rotation Blending
+    plot_crop:    Optional[int] = None,  # Crop opcional somente para visualização dos plots
 ) -> None:
     sep = "=" * 70
     print(sep)
@@ -432,7 +504,7 @@ def main(
     print(f"\n  Background set: {background.shape}")
 
     # — 5. Calcular SHAP com TTA —
-    explainer = SHAPRegressionTTA(model, background, rotations=rotations)
+    explainer = SHAPRegressionTTA(model, background, rotations=rotations, use_tta=use_tta)
     shap_maps, predictions = explainer.process_all(images, batch_size=batch_size)
     print(f"\n  SHAP maps : {shap_maps.shape}  dtype={shap_maps.dtype}")
     print(f"  Predições : {predictions.shape}  min={predictions.min():.1f}  max={predictions.max():.1f}")
@@ -464,8 +536,8 @@ def main(
 
     # — 8. Visualizações —
     print(f"\nGerando plots em: {OUTPUT_DIR}")
-    plot_global_mean(shap_maps, OUTPUT_DIR)
-    plot_sample_grid(images, shap_maps, predictions, labels, OUTPUT_DIR, n_samples=n_plot, seed=seed)
+    plot_global_mean(shap_maps, OUTPUT_DIR, crop_plot=plot_crop)
+    plot_sample_grid(images, shap_maps, predictions, labels, OUTPUT_DIR, crop_plot=plot_crop)
     plot_error_analysis(shap_maps, predictions, labels, OUTPUT_DIR)
     plot_prediction_scatter(predictions, labels, OUTPUT_DIR)
 
@@ -491,8 +563,10 @@ if __name__ == "__main__":
     parser.add_argument("--bg",         type=int, default=100,  help="Tamanho do background set")
     parser.add_argument("--rotations",  type=int, default=10,   help="Número de rotações TTA")
     parser.add_argument("--batch",      type=int, default=8,    help="Batch size para SHAP")
-    parser.add_argument("--n-plot",     type=int, default=12,   help="Amostras na grade de plots")
+    parser.add_argument("--n-plot",     type=int, default=12,   help="Amostras na grade de plots (descontinuado)")
     parser.add_argument("--seed",       type=int, default=42,   help="Seed aleatório")
+    parser.add_argument("--use-tta",    action="store_true",    help="Ativar Rotation Blending (TTA)")
+    parser.add_argument("--plot-crop",  type=int, default=None, help="Tamanho do crop visual dos plots (None = sem crop)")
 
     args = parser.parse_args()
 
@@ -503,4 +577,6 @@ if __name__ == "__main__":
         limit=args.limit,
         n_plot=args.n_plot,
         seed=args.seed,
+        use_tta=args.use_tta,
+        plot_crop=args.plot_crop,
     )

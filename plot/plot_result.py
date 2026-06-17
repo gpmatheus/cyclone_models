@@ -268,4 +268,4 @@ def main(img_width=64):
 
 
 if __name__ == "__main__":
-    main(img_width=224)
+    main()

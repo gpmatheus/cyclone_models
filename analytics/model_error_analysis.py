@@ -23,9 +23,13 @@ import pandas as pd
 warnings.filterwarnings('ignore')
 
 # Environment variables
+# MODEL_PATH = os.getenv('MODEL_PATH') or 'result/original/model.keras'
 MODEL_PATH = os.getenv('MODEL_PATH') or 'result/tcc_II/2/model.keras'
 DATASET_PATH = os.getenv('DATASET_PATH') or 'data/preprocessed/test.h5'
 OUTPUT_PATH = os.getenv('OUTPUT_PATH') or 'result/plot'
+
+
+REMOVE_FROM_TC = int(os.getenv('REMOVE_FROM_TC') or 2)
 
 # Try to import TensorFlow/Keras
 try:
@@ -68,11 +72,13 @@ def load_test_dataset(dataset_path, crop_w):
         images = file['matrix'][:]
         images = tf.image.resize_with_crop_or_pad(images, crop_w, crop_w)
         
-    
-    info = pd.read_hdf(dataset_path, key="info", mode="r")["Vmax"]
+    info_df = pd.read_hdf(dataset_path, key="info", mode="r")
+    vmax = info_df["Vmax"]
+    ids = info_df["ID"]
+    times = info_df["time"]
     print(f"Dados carregados! Total de amostras: {len(images)}")
 
-    return images, info
+    return images, vmax, ids, times
 
 
 def calculate_errors(model, X, y):
@@ -188,18 +194,28 @@ def save_error_statistics(abs_errors, raw_errors, output_path):
     print(f"✓ Estatísticas salvas em {output_file}")
 
 
-def save_error_csv(abs_errors, raw_errors, output_path):
-    """Salva erros em arquivo CSV para análise adicional."""
-    import csv
+def save_error_csv(ids, times, abs_errors, raw_errors, output_path):
+    """Salva erros em arquivo CSV para análise adicional, removendo as 2 primeiras imagens de cada ciclone."""
+    # Criar um DataFrame com todos os dados
+    df = pd.DataFrame({
+        'ID_Ciclone': [cid.decode('utf-8') if isinstance(cid, bytes) else str(cid) for cid in ids],
+        'Data_Hora': [t.decode('utf-8') if isinstance(t, bytes) else str(t) for t in times],
+        'Erro_Bruto': raw_errors,
+        'Erro_Absoluto': abs_errors
+    })
     
+    # Ordenar por ID do ciclone e depois por Data/Hora (cronológico)
+    df_sorted = df.sort_values(by=['ID_Ciclone', 'Data_Hora'])
+    
+    # Agrupar por ID_Ciclone e descartar as duas primeiras imagens (linhas) de cada um
+    df_filtered = df_sorted.groupby('ID_Ciclone', group_keys=False).apply(lambda x: x.iloc[REMOVE_FROM_TC:]).reset_index(drop=True)
+    
+    # Salvar em CSV
     output_file = Path(output_path) / "errors.csv"
-    with open(output_file, 'w', newline='') as f:
-        writer = csv.writer(f)
-        writer.writerow(['ID_Amostra', 'Erro_Bruto', 'Erro_Absoluto'])
-        for idx, (raw_err, abs_err) in enumerate(zip(raw_errors, abs_errors)):
-            writer.writerow([idx, raw_err, abs_err])
+    df_filtered.to_csv(output_file, index=False)
     
-    print(f"✓ Erros salvos em {output_file}")
+    print(f"✓ Erros filtrados (removidas as 2 primeiras imagens de cada ciclone) salvos em {output_file}")
+    print(f"  Total de amostras original: {len(df)} -> Filtrado: {len(df_filtered)}")
 
 
 def main(crop_w=64):
@@ -210,7 +226,7 @@ def main(crop_w=64):
         model = load_model(MODEL_PATH)
         
         # Load dataset
-        X, y = load_test_dataset(DATASET_PATH, crop_w)
+        X, y, ids, times = load_test_dataset(DATASET_PATH, crop_w)
         
         if y is None:
             print("❌ Não é possível prosseguir sem a variável alvo")
@@ -221,12 +237,13 @@ def main(crop_w=64):
         
         # Create plots
         create_error_distribution_plot(abs_errors, OUTPUT_PATH)
+        # create_error_distribution_plot(raw_errors, OUTPUT_PATH)
         
         # Save statistics
         save_error_statistics(abs_errors, raw_errors, OUTPUT_PATH)
         
         # Save error data
-        save_error_csv(abs_errors, raw_errors, OUTPUT_PATH)
+        save_error_csv(ids, times, abs_errors, raw_errors, OUTPUT_PATH)
         
         print(f"\n{'='*70}")
         print("✓ Análise concluída com sucesso!")
