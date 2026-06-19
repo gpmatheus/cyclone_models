@@ -1,259 +1,156 @@
 """
-Script de Análise de Erro do Modelo
-Carrega um modelo treinado e calcula erros de predição no conjunto de testes.
-Gera gráficos de distribuição de frequência de erros absolutos.
+Distribuição dos erros absolutos por modelo.
 
-Variáveis de ambiente:
-  MODEL_PATH: Caminho para o arquivo do modelo treinado (.keras ou .h5)
-  DATASET_PATH: Caminho para o conjunto de testes (arquivo HDF5)
-  OUTPUT_PATH: Diretório para salvar resultados
+Lê os errors.csv gerados pelo notebook Kaggle (com Rotation Blending / TTA)
+e plota a distribuição de frequência dos erros absolutos de todos os modelos.
+
+Uso:
+    python analytics/model_error_analysis.py
+
+Saída:
+    kaggle_results/plots/error_dist_{modelo}.png  — histograma individual
+    kaggle_results/plots/error_dist_all.png       — grade com todos os modelos
+    kaggle_results/error_stats.json               — estatísticas por modelo
 """
 
-import os
-import sys
-import numpy as np
-import h5py
-import matplotlib.pyplot as plt
 import json
-from pathlib import Path
-from datetime import datetime
-import warnings
+import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
+from pathlib import Path
 
-warnings.filterwarnings('ignore')
+ROOT_DIR  = Path(__file__).parent.parent
+ERRORS_DIR = ROOT_DIR / "kaggle_results" / "errors"
+PLOTS_DIR  = ROOT_DIR / "kaggle_results" / "plots"
 
-# Environment variables
-# MODEL_PATH = os.getenv('MODEL_PATH') or 'result/original/model.keras'
-MODEL_PATH = os.getenv('MODEL_PATH') or 'result/tcc_II/2/model.keras'
-DATASET_PATH = os.getenv('DATASET_PATH') or 'data/preprocessed/test.h5'
-OUTPUT_PATH = os.getenv('OUTPUT_PATH') or 'result/plot'
-
-
-REMOVE_FROM_TC = int(os.getenv('REMOVE_FROM_TC') or 2)
-
-# Try to import TensorFlow/Keras
-try:
-    import tensorflow as tf
-    # from tensorflow import keras
-    keras = tf.keras
-    KERAS_AVAILABLE = True
-except ImportError:
-    KERAS_AVAILABLE = False
-    print("⚠️  TensorFlow/Keras não disponível. Instale com: pip install tensorflow")
+MODEL_ORDER = ['original', 'tcc_I', 'tcc_II', 'resnet', 'mobilenet_v2']
+MODEL_LABEL = {
+    'original':     'Original (CNN-TC)',
+    'tcc_I':        'Diff1',
+    'tcc_II':       'Diff2',
+    'resnet':       'ResNet50',
+    'mobilenet_v2': 'MobileNetV2',
+}
 
 
-def load_model(model_path):
-    """Carrega o modelo treinado."""
-    print(f"Carregando modelo de {model_path}...")
-    model = keras.models.load_model(model_path, compile=False)
-    model.compile(
-        optimizer='adam',
-        loss=keras.losses.MeanSquaredError(),
-        metrics=['mse']
-    )
-    print("Modelo carregado com sucesso!")
-    return model
 
-def get_images_slice(images_shape, width):
-    # Calcula o slice para cortar a imagem centralizada com a largura especificada
-    start = images_shape[1] // 2 - width // 2
-    end = images_shape[1] // 2 + width // 2
-    return slice(start, end)
-
-def cut_images(images, width):
-    # Corta as imagens para o tamanho especificado, centralizando o corte
-    slc = get_images_slice(images.shape, width)
-    return images[:, slc, slc, :]
-
-def load_test_dataset(dataset_path, crop_w):
-    """Carrega dados de teste do arquivo HDF5."""
-    print(f"Carregando dados de teste de {dataset_path}...")
-    with h5py.File(dataset_path, mode='r') as file:
-        images = file['matrix'][:]
-        images = tf.image.resize_with_crop_or_pad(images, crop_w, crop_w)
-        
-    info_df = pd.read_hdf(dataset_path, key="info", mode="r")
-    vmax = info_df["Vmax"]
-    ids = info_df["ID"]
-    times = info_df["time"]
-    print(f"Dados carregados! Total de amostras: {len(images)}")
-
-    return images, vmax, ids, times
+def load_errors(key):
+    path = ERRORS_DIR / key / "errors.csv"
+    if not path.exists():
+        raise FileNotFoundError(f"errors.csv não encontrado: {path}")
+    df = pd.read_csv(path)
+    return df['Erro_Absoluto'].dropna().values
 
 
-def calculate_errors(model, X, y):
-    """Calcula erros de predição para cada amostra."""
-    print(f"\nFazendo predições em {len(X)} amostras...")
-    
-    try:
-        # Make predictions
-        predictions = model.predict(X, verbose=0)
-        
-        # Handle multi-dimensional predictions (take first output if needed)
-        if len(predictions.shape) > 1:
-            predictions = predictions[:, 0]
-        
-        print(f"✓ Predições concluídas")
-        print(f"  Forma das predições: {predictions.shape}")
-        print(f"  Intervalo das predições: [{np.min(predictions):.4f}, {np.max(predictions):.4f}]")
-        
-        if y is not None:
-            # Calculate raw errors
-            raw_errors = y - predictions
-            
-            # Calculate absolute errors
-            abs_errors = np.abs(raw_errors)
-            
-            print(f"\n✓ Erros calculados")
-            print(f"  Erros brutos - média: {np.mean(raw_errors):.4f}, desvio: {np.std(raw_errors):.4f}")
-            print(f"  Erros absolutos - média: {np.mean(abs_errors):.4f}, desvio: {np.std(abs_errors):.4f}")
-            print(f"  Erros absolutos - mín: {np.min(abs_errors):.4f}, máx: {np.max(abs_errors):.4f}")
-            
-            return predictions, raw_errors, abs_errors
-        else:
-            return predictions, None, None
-            
-    except Exception as e:
-        raise RuntimeError(f"Falha ao fazer predições: {e}")
+def plot_single(ax, errors, label, color='steelblue'):
+    """Histograma de erros absolutos num eixo matplotlib."""
+    mean_val = np.mean(errors)
+    median_val = np.median(errors)
+    std_val = np.std(errors)
 
-
-def create_error_distribution_plot(abs_errors, output_path):
-    """Cria gráfico de distribuição de frequência de erros absolutos."""
-    print(f"\nGerando gráfico de distribuição de frequência...")
-    
-    # Criar figura
-    fig, ax = plt.subplots(figsize=(10, 6))
-    
-    # Histograma
-    n, bins, patches = ax.hist(abs_errors, bins=50, edgecolor='black', alpha=0.7, color='steelblue')
-    ax.set_xlabel('Erro Absoluto', fontsize=11, fontweight='bold')
-    ax.set_ylabel('Frequência', fontsize=11, fontweight='bold')
-    ax.set_title('Distribuição de Frequência de Erros Absolutos de Predição', fontsize=12, fontweight='bold')
+    ax.hist(errors, bins=50, edgecolor='black', linewidth=0.4,
+            alpha=0.75, color=color)
+    ax.axvline(mean_val, color='red', linestyle='--', linewidth=1.8,
+               label=f'Média: {mean_val:.2f}')
+    ax.axvline(median_val, color='orange', linestyle=':', linewidth=1.8,
+               label=f'Mediana: {median_val:.2f}')
+    ax.set_title(label, fontsize=11, fontweight='bold')
+    ax.set_xlabel('Erro Absoluto (nós)', fontsize=9)
+    ax.set_ylabel('Frequência', fontsize=9)
+    ax.legend(fontsize=8)
     ax.grid(axis='y', alpha=0.3)
-    
-    # Adicionar linha da média
-    mean_val = np.mean(abs_errors)
-    ax.axvline(mean_val, color='red', linestyle='--', linewidth=2.5, label=f'Média: {mean_val:.4f}')
-    ax.legend(loc='upper left', fontsize=10)
-    
-    # Adicionar caixa de estatísticas
-    stats_text = (
-        f"Média: {np.mean(abs_errors):.4f}\n"
-        f"Mediana: {np.median(abs_errors):.4f}\n"
-        f"Desvio Padrão: {np.std(abs_errors):.4f}\n"
-        f"Mínimo: {np.min(abs_errors):.4f}\n"
-        f"Máximo: {np.max(abs_errors):.4f}\n"
-        f"Total: {len(abs_errors)}"
+
+    stats = (
+        f"N={len(errors)}\n"
+        f"Média:  {mean_val:.4f}\n"
+        f"Mediana:{median_val:.4f}\n"
+        f"Desvio: {std_val:.4f}\n"
+        f"Mín:    {errors.min():.4f}\n"
+        f"Máx:    {errors.max():.4f}"
     )
-    ax.text(0.98, 0.97, stats_text, transform=ax.transAxes, 
-             verticalalignment='top', horizontalalignment='right',
-             bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8),
-             fontfamily='monospace', fontsize=9)
-    
-    plt.tight_layout()
-    
-    # Salvar figura
-    output_file = Path(output_path) / "error_distribution.png"
-    plt.savefig(output_file, dpi=150, bbox_inches='tight')
-    print(f"✓ Gráfico salvo em {output_file}")
-    plt.close()
+    ax.text(0.97, 0.97, stats, transform=ax.transAxes,
+            va='top', ha='right', fontsize=7.5, family='monospace',
+            bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.7))
 
 
-def save_error_statistics(abs_errors, raw_errors, output_path):
-    """Salva estatísticas de erros como JSON."""
-    stats = {
-        "absolute_errors": {
-            "mean": float(np.mean(abs_errors)),
-            "median": float(np.median(abs_errors)),
-            "std": float(np.std(abs_errors)),
-            "min": float(np.min(abs_errors)),
-            "max": float(np.max(abs_errors)),
-            "count": int(len(abs_errors))
-        },
-        "raw_errors": {
-            "mean": float(np.mean(raw_errors)),
-            "median": float(np.median(raw_errors)),
-            "std": float(np.std(raw_errors)),
-            "min": float(np.min(raw_errors)),
-            "max": float(np.max(raw_errors)),
-        },
-        "percentiles": {
-            "25th": float(np.percentile(abs_errors, 25)),
-            "50th": float(np.percentile(abs_errors, 50)),
-            "75th": float(np.percentile(abs_errors, 75)),
-            "90th": float(np.percentile(abs_errors, 90)),
-            "95th": float(np.percentile(abs_errors, 95)),
-            "99th": float(np.percentile(abs_errors, 99)),
-        },
-        "timestamp": datetime.now().isoformat()
-    }
-    
-    output_file = Path(output_path) / "error_statistics.json"
-    with open(output_file, 'w') as f:
-        json.dump(stats, f, indent=2)
-    print(f"✓ Estatísticas salvas em {output_file}")
+def main():
+    PLOTS_DIR.mkdir(parents=True, exist_ok=True)
 
+    colors = ['steelblue', 'seagreen', 'darkorange', 'mediumpurple', 'crimson']
+    loaded = []
+    all_stats = {}
 
-def save_error_csv(ids, times, abs_errors, raw_errors, output_path):
-    """Salva erros em arquivo CSV para análise adicional, removendo as 2 primeiras imagens de cada ciclone."""
-    # Criar um DataFrame com todos os dados
-    df = pd.DataFrame({
-        'ID_Ciclone': [cid.decode('utf-8') if isinstance(cid, bytes) else str(cid) for cid in ids],
-        'Data_Hora': [t.decode('utf-8') if isinstance(t, bytes) else str(t) for t in times],
-        'Erro_Bruto': raw_errors,
-        'Erro_Absoluto': abs_errors
-    })
-    
-    # Ordenar por ID do ciclone e depois por Data/Hora (cronológico)
-    df_sorted = df.sort_values(by=['ID_Ciclone', 'Data_Hora'])
-    
-    # Agrupar por ID_Ciclone e descartar as duas primeiras imagens (linhas) de cada um
-    df_filtered = df_sorted.groupby('ID_Ciclone', group_keys=False).apply(lambda x: x.iloc[REMOVE_FROM_TC:]).reset_index(drop=True)
-    
-    # Salvar em CSV
-    output_file = Path(output_path) / "errors.csv"
-    df_filtered.to_csv(output_file, index=False)
-    
-    print(f"✓ Erros filtrados (removidas as 2 primeiras imagens de cada ciclone) salvos em {output_file}")
-    print(f"  Total de amostras original: {len(df)} -> Filtrado: {len(df_filtered)}")
+    # ── Plots individuais ──
+    for key in MODEL_ORDER:
+        try:
+            errors = load_errors(key)
+        except FileNotFoundError as e:
+            print(f"  ⚠️  {e} — pulando.")
+            continue
 
+        fig, ax = plt.subplots(figsize=(8, 5), dpi=100)
+        color = colors[MODEL_ORDER.index(key) % len(colors)]
+        plot_single(ax, errors, MODEL_LABEL[key], color)
+        plt.tight_layout()
+        out = PLOTS_DIR / f"error_dist_{key}.png"
+        plt.savefig(out, dpi=150, bbox_inches='tight')
+        plt.close()
+        print(f"  Salvo: {out}")
+        loaded.append((key, errors, color))
+        all_stats[key] = {
+            'label':   MODEL_LABEL[key],
+            'n':       int(len(errors)),
+            'mean':    float(np.mean(errors)),
+            'median':  float(np.median(errors)),
+            'std':     float(np.std(errors)),
+            'min':     float(errors.min()),
+            'max':     float(errors.max()),
+            'p25':     float(np.percentile(errors, 25)),
+            'p75':     float(np.percentile(errors, 75)),
+            'p90':     float(np.percentile(errors, 90)),
+            'p95':     float(np.percentile(errors, 95)),
+        }
 
-def main(crop_w=64):
-    """Execução principal."""
-    try:
-        
-        # Load model
-        model = load_model(MODEL_PATH)
-        
-        # Load dataset
-        X, y, ids, times = load_test_dataset(DATASET_PATH, crop_w)
-        
-        if y is None:
-            print("❌ Não é possível prosseguir sem a variável alvo")
-            return
-        
-        # Calculate errors
-        predictions, raw_errors, abs_errors = calculate_errors(model, X, y)
-        
-        # Create plots
-        create_error_distribution_plot(abs_errors, OUTPUT_PATH)
-        # create_error_distribution_plot(raw_errors, OUTPUT_PATH)
-        
-        # Save statistics
-        save_error_statistics(abs_errors, raw_errors, OUTPUT_PATH)
-        
-        # Save error data
-        save_error_csv(ids, times, abs_errors, raw_errors, OUTPUT_PATH)
-        
-        print(f"\n{'='*70}")
-        print("✓ Análise concluída com sucesso!")
-        print(f"{'='*70}\n")
-        
-    except Exception as e:
-        print(f"\n❌ Erro: {e}\n")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
+    if not loaded:
+        print("Nenhum errors.csv encontrado em kaggle_results/errors/")
+        return
+
+    # ── Grade com todos os modelos ──
+    if len(loaded) > 1:
+        n = len(loaded)
+        cols = min(n, 3)
+        rows = (n + cols - 1) // cols
+        fig, axes = plt.subplots(rows, cols, figsize=(6 * cols, 4.5 * rows), dpi=100)
+        axes_flat = np.array(axes).flatten()
+        for i, (key, errors, color) in enumerate(loaded):
+            plot_single(axes_flat[i], errors, MODEL_LABEL[key], color)
+        for j in range(len(loaded), len(axes_flat)):
+            axes_flat[j].set_visible(False)
+        fig.suptitle('Distribuição dos Erros Absolutos — Todos os Modelos\n(Predições com Rotation Blending / TTA)',
+                     fontsize=13, fontweight='bold')
+        plt.tight_layout()
+        out_all = PLOTS_DIR / "error_dist_all.png"
+        plt.savefig(out_all, dpi=150, bbox_inches='tight')
+        plt.close()
+        print(f"  Salvo: {out_all}")
+
+    # ── Salvar estatísticas em JSON ──
+    out_json = ROOT_DIR / "kaggle_results" / "error_stats.json"
+    with open(out_json, 'w') as f:
+        json.dump(all_stats, f, indent=2)
+    print(f"  Salvo: {out_json}")
+
+    # ── Tabela resumo no terminal ──
+    print()
+    print("=" * 62)
+    print("  DISTRIBUIÇÃO DOS ERROS ABSOLUTOS (com TTA)")
+    print("=" * 62)
+    print(f"  {'Modelo':<26} {'N':>5} {'Média':>7} {'Mediana':>8} {'Desvio':>8}")
+    print("  " + "-" * 58)
+    for key, errors, _ in loaded:
+        print(f"  {MODEL_LABEL[key]:<26} {len(errors):>5} "
+              f"{np.mean(errors):>7.4f} {np.median(errors):>8.4f} {np.std(errors):>8.4f}")
+    print("=" * 62)
 
 
 if __name__ == "__main__":

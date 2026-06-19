@@ -1,6 +1,11 @@
 """
-Teste de Wilcoxon Signed-Rank para Comparação de Erros de Modelos
-Compara os erros absolutos de predição entre dois modelos usando teste não-paramétrico.
+Tabelas 3 e 4 do TCC — lê de kaggle_results/errors/
+
+Tabela 3: MSE, RMSE e MAE por modelo (inferência direta, sem TTA)
+Tabela 4: Wilcoxon Signed-Rank (Original vs demais)
+
+Uso:
+    python analytics/wilcoxon_test.py
 """
 
 import pandas as pd
@@ -10,210 +15,151 @@ from scipy.stats import wilcoxon
 import json
 from datetime import datetime
 
-def load_error_data(filepath):
-    """Carrega dados de erros do arquivo CSV."""
-    df = pd.read_csv(filepath)
-    print(f"  ✓ Carregado: {filepath}")
-    print(f"    Amostras: {len(df)}")
-    return df
+ROOT_DIR = Path(__file__).parent.parent
+STAT_DIR = ROOT_DIR / "kaggle_results" / "errors"
 
-def perform_wilcoxon_test(errors1, errors2, model1_name, model2_name):
-    """Realiza o Teste de Wilcoxon Signed-Rank."""
-    print(f"\n{'='*70}")
-    print(f"  TESTE DE WILCOXON SIGNED-RANK")
-    print(f"  Modelo 1: {model1_name}")
-    print(f"  Modelo 2: {model2_name}")
-    print(f"{'='*70}")
-    
-    # Remover NaN se houver
-    valid_mask = ~(np.isnan(errors1) | np.isnan(errors2))
-    errors1_clean = errors1[valid_mask]
-    errors2_clean = errors2[valid_mask]
-    
-    print(f"\nAmostras válidas: {len(errors1_clean)}")
-    
-    # Estatísticas descritivas
-    print(f"\nEstatísticas Descritivas:")
-    print(f"  {model1_name}:")
-    print(f"    Média:         {np.mean(errors1_clean):.4f}")
-    print(f"    Mediana:       {np.median(errors1_clean):.4f}")
-    print(f"    Desvio Padrão: {np.std(errors1_clean):.4f}")
-    print(f"    Mín/Máx:       {np.min(errors1_clean):.4f} / {np.max(errors1_clean):.4f}")
-    
-    print(f"\n  {model2_name}:")
-    print(f"    Média:         {np.mean(errors2_clean):.4f}")
-    print(f"    Mediana:       {np.median(errors2_clean):.4f}")
-    print(f"    Desvio Padrão: {np.std(errors2_clean):.4f}")
-    print(f"    Mín/Máx:       {np.min(errors2_clean):.4f} / {np.max(errors2_clean):.4f}")
-    
-    # Calcular diferenças
-    differences = errors1_clean - errors2_clean
-    
-    print(f"\nDiferenças (Modelo 1 - Modelo 2):")
-    print(f"    Média:         {np.mean(differences):.4f}")
-    print(f"    Mediana:       {np.median(differences):.4f}")
-    
-    # Realizar teste de Wilcoxon
-    statistic, p_value = wilcoxon(errors1_clean, errors2_clean, alternative='two-sided')
-    
-    print(f"\nResultados do Teste de Wilcoxon Signed-Rank:")
-    print(f"    Estatística W: {statistic:.4f}")
-    print(f"    p-value:       {p_value:.6f}")
-    print(f"    Nível α:       0.05")
-    
-    # Interpretação
-    if p_value < 0.05:
-        print(f"\n  ✓ Resultado: SIGNIFICATIVO")
-        print(f"    Os erros entre os modelos são significativamente diferentes (p < 0.05)")
-        
-        # Determinar qual é menor
-        if np.median(errors1_clean) < np.median(errors2_clean):
-            print(f"    → {model1_name} tem erros MENORES que {model2_name}")
-        else:
-            print(f"    → {model2_name} tem erros MENORES que {model1_name}")
-    else:
-        print(f"\n  ✗ Resultado: NÃO SIGNIFICATIVO")
-        print(f"    Os erros entre os modelos NÃO são significativamente diferentes (p ≥ 0.05)")
-    
-    # Contar amostras com melhora
-    melhora_modelo1 = (errors1_clean < errors2_clean).sum()
-    melhora_modelo2 = (errors2_clean < errors1_clean).sum()
-    empate = (errors1_clean == errors2_clean).sum()
-    
-    print(f"\nComparação Amostra por Amostra:")
-    print(f"    {model1_name} melhor: {melhora_modelo1} ({100*melhora_modelo1/len(errors1_clean):.1f}%)")
-    print(f"    {model2_name} melhor: {melhora_modelo2} ({100*melhora_modelo2/len(errors1_clean):.1f}%)")
-    print(f"    Empate:           {empate} ({100*empate/len(errors1_clean):.1f}%)")
-    
-    return {
-        "modelo1": model1_name,
-        "modelo2": model2_name,
-        "amostras": len(errors1_clean),
-        "wilcoxon_statistic": float(statistic),
-        "p_value": float(p_value),
-        "significante": bool(p_value < 0.05),
-        "media_modelo1": float(np.mean(errors1_clean)),
-        "media_modelo2": float(np.mean(errors2_clean)),
-        "mediana_modelo1": float(np.median(errors1_clean)),
-        "mediana_modelo2": float(np.median(errors2_clean)),
-        "std_modelo1": float(np.std(errors1_clean)),
-        "std_modelo2": float(np.std(errors2_clean)),
-        "melhora_modelo1": int(melhora_modelo1),
-        "melhora_modelo2": int(melhora_modelo2),
-        "empate": int(empate),
-        "timestamp": datetime.now().isoformat()
-    }
+MODEL_ORDER = ['original', 'tcc_I', 'tcc_II', 'resnet', 'mobilenet_v2']
+MODEL_LABEL = {
+    'original':     'Original (CNN-TC)',
+    'tcc_I':        'Diff1',
+    'tcc_II':       'Diff2',
+    'resnet':       'ResNet50',
+    'mobilenet_v2': 'MobileNetV2',
+}
+COMPARISONS = ['tcc_I', 'tcc_II', 'resnet', 'mobilenet_v2']
 
-def create_summary_table(results):
-    """Cria e exibe tabela formatada em texto com resumo dos resultados."""
-    print("\n" + "="*80)
-    print("RESUMO COMPARATIVO - TESTE DE WILCOXON SIGNED-RANK".center(80))
-    print("="*80)
-    
-    # Cabeçalho
-    print(f"{'Métrica':<30} {results['modelo1']:<20} {results['modelo2']:<20}")
-    print("-"*80)
-    
-    # Dados estatísticos
-    print(f"{'Média de Erros':<30} {results['media_modelo1']:>19.4f} {results['media_modelo2']:>19.4f}")
-    print(f"{'Mediana de Erros':<30} {results['mediana_modelo1']:>19.4f} {results['mediana_modelo2']:>19.4f}")
-    print(f"{'Desvio Padrão':<30} {results['std_modelo1']:>19.4f} {results['std_modelo2']:>19.4f}")
-    print("-"*80)
-    
-    # Comparação amostra por amostra
-    pct_modelo1 = 100 * results['melhora_modelo1'] / results['amostras']
-    pct_modelo2 = 100 * results['melhora_modelo2'] / results['amostras']
-    pct_empate = 100 * results['empate'] / results['amostras']
-    
-    print(f"{'Melhor em (amostras)':<30} {results['melhora_modelo1']:>19} {results['melhora_modelo2']:>19}")
-    print(f"{'Percentual (%)':<30} {pct_modelo1:>19.1f}% {pct_modelo2:>19.1f}%")
-    print(f"{'Empates':<30} {results['empate']:>39}")
-    print("-"*80)
-    
-    # Resultados do teste
-    print(f"{'Estatística W (Wilcoxon)':<30} {results['wilcoxon_statistic']:>39.4f}")
-    print(f"{'p-value':<30} {results['p_value']:>39.6f}")
-    print(f"{'Nível de Significância (α)':<30} {'0.05 (5%)':>39}")
-    print(f"{'Resultado':<30} {'SIGNIFICATIVO ✓' if results['significante'] else 'NÃO SIGNIFICATIVO ✗':>39}")
-    print("="*80 + "\n")
 
-def save_results(results, output_path):
-    """Salva resultados em arquivo JSON."""
-    output_file = Path(output_path) / "wilcoxon_test_results.json"
-    with open(output_file, 'w') as f:
-        json.dump(results, f, indent=2)
-    print(f"✓ Resultados salvos em {output_file}")
+def load_csv(key):
+    path = STAT_DIR / key / "errors.csv"
+    if not path.exists():
+        raise FileNotFoundError(f"Arquivo não encontrado: {path}")
+    return pd.read_csv(path)
+
+
+# ---------------------------------------------------------------------------
+# Tabela 3
+# ---------------------------------------------------------------------------
+
+def print_tabela3():
+    print()
+    print("=" * 62)
+    print("  TABELA 3 - Comparacao dos modelos de predicao")
+    print("=" * 62)
+    print(f"  {'Modelo':<26} {'RMSE':>7} {'MAE':>7} {'MSE':>10}")
+    print("  " + "-" * 58)
+    for key in MODEL_ORDER:
+        try:
+            df = load_csv(key)
+        except FileNotFoundError:
+            print(f"  {MODEL_LABEL[key]:<26}  N/A (arquivo ausente)")
+            continue
+        e    = df['Erro_Bruto'].values
+        mse  = float(np.mean(e ** 2))
+        rmse = float(np.sqrt(mse))
+        mae  = float(np.mean(np.abs(e)))
+        print(f"  {MODEL_LABEL[key]:<26} {rmse:>7.4f} {mae:>7.4f} {mse:>10.4f}")
+    print("=" * 62)
+    print("  RMSE e MAE em nos (inferencia direta, sem TTA)")
+
+
+# ---------------------------------------------------------------------------
+# Tabela 4
+# ---------------------------------------------------------------------------
+
+def run_wilcoxon(eo, em):
+    valid = ~(np.isnan(eo) | np.isnan(em))
+    eo, em = eo[valid], em[valid]
+    stat, p = wilcoxon(eo, em, alternative='two-sided')
+    pct     = 100.0 * (em < eo).sum() / len(eo)
+    return float(stat), float(p), float(pct), int(len(eo))
+
+
+def print_tabela4():
+    print()
+    print("=" * 80)
+    print("  TABELA 4 - Wilcoxon Signed-Rank (Original vs demais)")
+    print("=" * 80)
+
+    try:
+        df_orig = load_csv('original')
+    except FileNotFoundError as e:
+        print(f"  ERRO: {e}")
+        return []
+
+    ae_orig = df_orig['Erro_Absoluto'].values
+    orig_label = MODEL_LABEL['original']
+    print(f"  {orig_label:<22} Media={np.mean(ae_orig):.4f}  "
+          f"Mediana={np.median(ae_orig):.4f}  Desvio={np.std(ae_orig):.4f}  "
+          f"N={len(ae_orig)}")
+    print()
+    print(f"  {'Modelo':<22} {'Media':>8} {'Mediana':>8} {'Desvio':>8} "
+          f"{'% Melhor':>10} {'p-value':>12} {'Sig?':>5}")
+    print("  " + "-" * 76)
+
+    all_results = []
+    for key in COMPARISONS:
+        try:
+            df_other = load_csv(key)
+        except FileNotFoundError:
+            print(f"  {MODEL_LABEL[key]:<22}  N/A (arquivo ausente)")
+            continue
+
+        merged = df_orig.merge(
+            df_other,
+            on=['ID_Ciclone', 'Data_Hora'],
+            suffixes=('_orig', '_other'),
+        )
+        if len(merged) < len(df_orig):
+            print(f"  AVISO: alinhamento parcial para {key}: "
+                  f"{len(merged)}/{len(df_orig)} amostras")
+
+        eo = merged['Erro_Absoluto_orig'].values
+        em = merged['Erro_Absoluto_other'].values
+        stat, p, pct, n = run_wilcoxon(eo, em)
+
+        mean_m   = float(np.mean(em[~np.isnan(em)]))
+        median_m = float(np.median(em[~np.isnan(em)]))
+        std_m    = float(np.std(em[~np.isnan(em)]))
+        sig      = 'Sim*' if p < 0.05 else 'Nao'
+
+        print(f"  {MODEL_LABEL[key]:<22} {mean_m:>8.4f} {median_m:>8.4f} "
+              f"{std_m:>8.4f} {pct:>9.1f}% {p:>12.6f} {sig:>5}")
+
+        all_results.append({
+            'model':        MODEL_LABEL[key],
+            'n':            n,
+            'mean_orig':    float(np.mean(eo[~np.isnan(eo)])),
+            'mean_other':   mean_m,
+            'median_orig':  float(np.median(eo[~np.isnan(eo)])),
+            'median_other': median_m,
+            'std_orig':     float(np.std(eo[~np.isnan(eo)])),
+            'std_other':    std_m,
+            'pct_better':   pct,
+            'statistic':    stat,
+            'p_value':      p,
+            'significant':  p < 0.05,
+            'timestamp':    datetime.now().isoformat(),
+        })
+
+    print("=" * 80)
+    print("  * Significante ao nivel alpha = 0,05")
+    return all_results
+
+
+# ---------------------------------------------------------------------------
+# main
+# ---------------------------------------------------------------------------
 
 def main():
-    """Execução principal."""
-    root_dir = Path(__file__).parent.parent
-    
-    # Caminhos dos arquivos
-    file1_path = root_dir / "result" / "statistical_test" / "original" / "errors.csv"
-    # file2_path = root_dir / "result" / "statistical_test" / "tcc_I" / "errors.csv"
-    # file2_path = root_dir / "result" / "statistical_test" / "tcc_II" / "errors.csv"
-    # file2_path = root_dir / "result" / "statistical_test" / "resnet" / "errors.csv"
-    file2_path = root_dir / "result" / "statistical_test" / "mobilenet_v2" / "errors.csv"
-    output_dir = root_dir / "result" / "plot"
-    
-    # Verificar se os arquivos existem
-    if not file1_path.exists():
-        print(f"❌ Arquivo não encontrado: {file1_path}")
-        return
-    if not file2_path.exists():
-        print(f"❌ Arquivo não encontrado: {file2_path}")
-        return
-    
-    print("="*70)
-    print("  COMPARAÇÃO DE ERROS DE MODELOS - TESTE DE WILCOXON SIGNED-RANK")
-    print("="*70)
-    
-    # Carregar dados
-    print("\n[1/4] Carregando dados de erros...")
-    df1 = load_error_data(str(file1_path))
-    df2 = load_error_data(str(file2_path))
-    
-    # Ordenar ambos os DataFrames para garantir alinhamento perfeito por Ciclone e Data/Hora
-    print("\n[2/4] Ordenando e garantindo o alinhamento dos dados...")
-    if 'ID_Ciclone' in df1.columns and 'Data_Hora' in df1.columns:
-        df1 = df1.sort_values(by=['ID_Ciclone', 'Data_Hora']).reset_index(drop=True)
-    if 'ID_Ciclone' in df2.columns and 'Data_Hora' in df2.columns:
-        df2 = df2.sort_values(by=['ID_Ciclone', 'Data_Hora']).reset_index(drop=True)
-        
-    print(f"  Amostras em {file1_path.parent.name}: {len(df1)}")
-    print(f"  Amostras em {file2_path.parent.name}: {len(df2)}")
-    
-    # Verificar alinhamento final
-    if 'ID_Ciclone' in df1.columns and 'ID_Ciclone' in df2.columns and 'Data_Hora' in df1.columns and 'Data_Hora' in df2.columns:
-        match_id = (df1['ID_Ciclone'] == df2['ID_Ciclone']).all()
-        match_time = (df1['Data_Hora'] == df2['Data_Hora']).all()
-        if match_id and match_time:
-            print("  ✓ Sucesso: Todos os IDs de ciclone e Data_Hora estão perfeitamente pareados entre os dois arquivos.")
-        else:
-            print("  ⚠️  Atenção: Mesmo após ordenação, os arquivos ainda possuem dados divergentes (ex. quantidade de linhas ou chaves diferentes)!")
-            mismatches = (df1['ID_Ciclone'] != df2['ID_Ciclone']).sum()
-            print(f"  Quantidade de linhas com IDs divergentes: {mismatches}")
-    else:
-        print("  ⚠️  Aviso: Colunas de ID_Ciclone ou Data_Hora ausentes em um dos arquivos. Não foi possível verificar o pareamento físico.")
-        
-    errors1 = df1['Erro_Absoluto'].values
-    errors2 = df2['Erro_Absoluto'].values
-    
-    # Realizar teste
-    print("\n[3/4] Realizando Teste de Wilcoxon Signed-Rank...")
-    results = perform_wilcoxon_test(errors1, errors2, "Original", "TCC-I")
-    
-    # Exibir tabela resumida
-    print("\n[4/4] Exibindo resumo dos resultados...")
-    create_summary_table(results)
-    
-    # Salvar resultados
-    output_dir.mkdir(parents=True, exist_ok=True)
-    save_results(results, str(output_dir))
-    
-    print(f"\n{'='*70}")
-    print("✓ Análise concluída com sucesso!")
-    print(f"{'='*70}\n")
+    print_tabela3()
+    results = print_tabela4()
+
+    if results:
+        out = STAT_DIR.parent / "wilcoxon_summary.json"
+        with open(out, 'w') as f:
+            json.dump(results, f, indent=2)
+        print(f"\n  JSON salvo em: {out}")
+
 
 if __name__ == "__main__":
     main()
