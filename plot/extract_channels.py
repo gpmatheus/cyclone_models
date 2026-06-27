@@ -21,8 +21,8 @@ def load_image_from_h5(filepath, image_index=0):
         image: Array numpy com a imagem (shape: height, width, channels)
     """
     # TODO: Implementar a leitura da imagem do arquivo H5
-    with h5py.File("data/TCIR-ATLN_EPAC_WPAC.h5", mode="r") as file:
-        return file["matrix"][1900, :, :, :]
+    with h5py.File("data/TCIR-ALL_2017.h5", mode="r") as file:
+        return file["matrix"][200, :, :, :]
 
 
 def save_channels_as_png(image, image_index, output_dir):
@@ -79,7 +79,7 @@ def main():
     root_dir = Path(__file__).parent.parent
     
     # Caminhos
-    h5_file = root_dir / "data" / "TCIR-ATLN_EPAC_WPAC.h5"
+    h5_file = root_dir / "data" / "TCIR-ALL_2017.h5"
     output_dir = root_dir / "result" / "plot" / "channel_extraction"
     
     # Verificar se arquivo existe

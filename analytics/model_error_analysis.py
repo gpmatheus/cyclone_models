@@ -26,8 +26,8 @@ PLOTS_DIR  = ROOT_DIR / "kaggle_results" / "plots"
 MODEL_ORDER = ['original', 'tcc_I', 'tcc_II', 'resnet', 'mobilenet_v2']
 MODEL_LABEL = {
     'original':     'Original (CNN-TC)',
-    'tcc_I':        'Diff1',
-    'tcc_II':       'Diff2',
+    'tcc_I':        'CNN-TC-Δ1',
+    'tcc_II':       'CNN-TC-Δ2',
     'resnet':       'ResNet50',
     'mobilenet_v2': 'MobileNetV2',
 }
